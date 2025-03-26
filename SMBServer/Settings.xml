@@ -1,14 +1,14 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <Settings>
   <Shares>
-    <Share Name="Shared" Path="C:\Shared">
+    <Share Name="Shared" Path="E:\测试数据\SMB\Shared">
       <ReadAccess Accounts="*"></ReadAccess>
-      <WriteAccess Accounts="Admin,Test"></WriteAccess>
+      <WriteAccess Accounts="*"></WriteAccess>
     </Share>
   </Shares>
   <Users>
-    <User AccountName="Admin" Password="admin"></User>
+    <User AccountName="Admin" Password=""></User>
     <User AccountName="Guest" Password=""></User>
-    <User AccountName="Test" Password="test"></User>
+    <User AccountName="Test" Password=""></User>
   </Users>
 </Settings>

@@ -7,6 +7,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
@@ -68,6 +69,7 @@ namespace SMBLibrary.Win32
 
     public class NTDirectoryFileSystem : INTFileStore
     {
+        static readonly NLog.Logger logger = NLog.LogManager.GetCurrentClassLogger();
         [DllImport("ntdll.dll", ExactSpelling = true, SetLastError = false)]
         private static extern NTStatus NtCreateFile(out IntPtr handle, uint desiredAccess, ref OBJECT_ATTRIBUTES objectAttributes, out IO_STATUS_BLOCK ioStatusBlock, ref long allocationSize, FileAttributes fileAttributes, ShareAccess shareAccess, CreateDisposition createDisposition, CreateOptions createOptions, IntPtr eaBuffer, uint eaLength);
 
@@ -154,6 +156,14 @@ namespace SMBLibrary.Win32
 
         private NTStatus CreateFile(out IntPtr handle, out FileStatus fileStatus, string nativePath, AccessMask desiredAccess, long allocationSize, FileAttributes fileAttributes, ShareAccess shareAccess, CreateDisposition createDisposition, CreateOptions createOptions)
         {
+            logger.Debug($"CreateFile {nativePath} {desiredAccess} {createDisposition} {createOptions}");
+            var result2 = CreateFileBase(out handle, out fileStatus, nativePath, desiredAccess, ref allocationSize, fileAttributes, shareAccess, createDisposition, createOptions);
+            logger.Debug($"{JsonConvertHelper.Serialize(handle)} {fileStatus} {result2}");
+            return result2;
+        }
+
+        private NTStatus CreateFileBase(out IntPtr handle, out FileStatus fileStatus, string nativePath, AccessMask desiredAccess, ref long allocationSize, FileAttributes fileAttributes, ShareAccess shareAccess, CreateDisposition createDisposition, CreateOptions createOptions)
+        {
             UNICODE_STRING objectName = new UNICODE_STRING(nativePath);
             OBJECT_ATTRIBUTES objectAttributes = InitializeObjectAttributes(objectName);
             IO_STATUS_BLOCK ioStatusBlock;
@@ -228,6 +238,8 @@ namespace SMBLibrary.Win32
 
         public NTStatus WriteFile(out int numberOfBytesWritten, object handle, long offset, byte[] data)
         {
+            logger.Debug($"WriteFile {JsonConvertHelper.Serialize(handle)} {offset}");
+            logger.Debug(JsonConvertHelper.Serialize(data.ToList()));
             IO_STATUS_BLOCK ioStatusBlock;
             NTStatus status = NtWriteFile((IntPtr)handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, out ioStatusBlock, data, (uint)data.Length, ref offset, IntPtr.Zero);
             if (status == NTStatus.STATUS_SUCCESS)
@@ -261,6 +273,14 @@ namespace SMBLibrary.Win32
 
         public NTStatus QueryDirectory(out List<QueryDirectoryFileInformation> result, object handle, string fileName, FileInformationClass informationClass)
         {
+            logger.Debug($"QueryDirectory {JsonConvertHelper.Serialize(handle)} {fileName} {JsonConvertHelper.Serialize(informationClass)}");
+            var result2 = QueryDirectoryBase(out result, handle, fileName, informationClass);
+            logger.Debug($"{JsonConvertHelper.Serialize(result)} {result2}");
+            return result2;
+        }
+
+        private static NTStatus QueryDirectoryBase(out List<QueryDirectoryFileInformation> result, object handle, string fileName, FileInformationClass informationClass)
+        {
             IO_STATUS_BLOCK ioStatusBlock;
             byte[] buffer = new byte[QueryDirectoryBufferSize];
             UNICODE_STRING fileNameStructure = new UNICODE_STRING(fileName);
@@ -288,6 +308,14 @@ namespace SMBLibrary.Win32
 
         public NTStatus GetFileInformation(out FileInformation result, object handle, FileInformationClass informationClass)
         {
+            logger.Debug($"GetFileInformation {JsonConvertHelper.Serialize(handle)}  {JsonConvertHelper.Serialize(informationClass)}");
+            var result2 = GetFileInformationBase(out result, handle, informationClass);
+            logger.Debug($"{JsonConvertHelper.Serialize(result)} {result2}");
+            return result2;
+        }
+
+        private static NTStatus GetFileInformationBase(out FileInformation result, object handle, FileInformationClass informationClass)
+        {
             IO_STATUS_BLOCK ioStatusBlock;
             byte[] buffer = new byte[FileInformationBufferSize];
             NTStatus status = NtQueryInformationFile((IntPtr)handle, out ioStatusBlock, buffer, (uint)buffer.Length, (uint)informationClass);
@@ -305,6 +333,14 @@ namespace SMBLibrary.Win32
         }
 
         public NTStatus SetFileInformation(object handle, FileInformation information)
+        {
+            Console.WriteLine($"SetFileInformation {information.GetType()}");
+            var result2 = SetFileInformationBase(handle, information);
+            Console.WriteLine(result2);
+            return result2;
+        }
+
+        private NTStatus SetFileInformationBase(object handle, FileInformation information)
         {
             IO_STATUS_BLOCK ioStatusBlock;
             if (information is FileRenameInformationType2)
@@ -396,7 +432,7 @@ namespace SMBLibrary.Win32
             byte[] buffer = new byte[outputBufferSize];
             ManualResetEvent requestAddedEvent = new ManualResetEvent(false);
             PendingRequest request = new PendingRequest();
-            Thread m_thread = new Thread(delegate()
+            Thread m_thread = new Thread(delegate ()
             {
                 request.FileHandle = (IntPtr)handle;
                 request.ThreadID = ThreadingHelper.GetCurrentThreadId();

@@ -6,6 +6,7 @@
  */
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -19,6 +20,12 @@ namespace SMBServer
         [STAThread]
         static void Main()
         {
+            var loggerRule = NLog.LogManager.Configuration.LoggingRules.First();
+            // 修改日志规则的最低日志级别为 Info
+            loggerRule.SetLoggingLevels(NLog.LogLevel.FromString("Trace"), NLog.LogLevel.Fatal);
+
+            // 重新加载配置以应用更改
+            NLog.LogManager.Configuration.Reload();
             Application.ThreadException += new ThreadExceptionEventHandler(Application_ThreadException);
             AppDomain.CurrentDomain.UnhandledException += new UnhandledExceptionEventHandler(CurrentDomain_UnhandledException);
 

@@ -16,7 +16,7 @@ namespace SMBLibrary.Server
     {
         // Key is SessionID
         private Dictionary<ulong, SMB2Session> m_sessions = new Dictionary<ulong, SMB2Session>();
-        private ulong m_nextSessionID = 1;
+        private static ulong m_nextSessionID = 1;
         // Key is AsyncID
         private Dictionary<ulong, SMB2AsyncContext> m_pendingRequests = new Dictionary<ulong, SMB2AsyncContext>();
         private ulong m_nextAsyncID = 1;
