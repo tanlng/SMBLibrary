@@ -96,7 +96,7 @@ namespace SMBLibrary.Server
                     // [MS-SMB2] If the request being received is not an SMB2 NEGOTIATE Request [..]
                     // and Connection.NegotiateDialect is 0xFFFF or 0x02FF, the server MUST
                     // disconnect the connection.
-                    state.LogToServer(Severity.Debug, "Invalid Connection State for command {0}", command.CommandName.ToString());
+                    state.LogToServer(Severity.Information, "Invalid Connection State for command {0}", command.CommandName.ToString());
                     state.ClientSocket.Close();
                     return null;
                 }
@@ -105,7 +105,7 @@ namespace SMBLibrary.Server
             {
                 // [MS-SMB2] If Connection.NegotiateDialect is 0x0202, 0x0210, 0x0300, 0x0302, or 0x0311,
                 // the server MUST disconnect the connection.
-                state.LogToServer(Severity.Debug, "Rejecting NegotiateRequest. NegotiateDialect is already set");
+                state.LogToServer(Severity.Information, "Rejecting NegotiateRequest. NegotiateDialect is already set");
                 state.ClientSocket.Close();
                 return null;
             }
