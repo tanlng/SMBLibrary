@@ -6,6 +6,8 @@
  */
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Xml.Serialization;
 using SMBLibrary.NetBios;
 using SMBLibrary.Server.SMB2;
 using SMBLibrary.SMB2;
@@ -17,6 +19,10 @@ namespace SMBLibrary.Server
     {
         private void ProcessSMB2RequestChain(List<SMB2Command> requestChain, ref ConnectionState state)
         {
+            foreach (var item in requestChain)
+            {
+                state.LogToServer(Severity.Trace, $"Request {item.GetType().Name} \r\n" + Utilities.JsonConvertHelper.Serialize(item));
+            }
             List<SMB2Command> responseChain = new List<SMB2Command>();
             FileID? fileID = null;
             NTStatus? fileIDStatus = null;
@@ -96,7 +102,7 @@ namespace SMBLibrary.Server
                     // [MS-SMB2] If the request being received is not an SMB2 NEGOTIATE Request [..]
                     // and Connection.NegotiateDialect is 0xFFFF or 0x02FF, the server MUST
                     // disconnect the connection.
-                    state.LogToServer(Severity.Debug, "Invalid Connection State for command {0}", command.CommandName.ToString());
+                    state.LogToServer(Severity.Information, "Invalid Connection State for command {0}", command.CommandName.ToString());
                     state.ClientSocket.Close();
                     return null;
                 }
@@ -105,7 +111,7 @@ namespace SMBLibrary.Server
             {
                 // [MS-SMB2] If Connection.NegotiateDialect is 0x0202, 0x0210, 0x0300, 0x0302, or 0x0311,
                 // the server MUST disconnect the connection.
-                state.LogToServer(Severity.Debug, "Rejecting NegotiateRequest. NegotiateDialect is already set");
+                state.LogToServer(Severity.Information, "Rejecting NegotiateRequest. NegotiateDialect is already set");
                 state.ClientSocket.Close();
                 return null;
             }
@@ -228,6 +234,10 @@ namespace SMBLibrary.Server
 
         private static void EnqueueResponseChain(ConnectionState state, List<SMB2Command> responseChain)
         {
+            foreach (var item in responseChain)
+            {
+                state.LogToServer(Severity.Trace, $"Response  {item.GetType().Name} \r\n" + Utilities.JsonConvertHelper.Serialize(item));
+            }
             byte[] signingKey = null;
             if (state is SMB2ConnectionState)
             {

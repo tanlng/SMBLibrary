@@ -21,7 +21,7 @@ namespace SMBLibrary.SMB2
         private ushort StructureSize;
         private ushort OutputBufferOffset;
         private uint OutputBufferLength;
-        public byte[] OutputBuffer = new byte[0];
+        public byte[] OutputBuffer { get; set; } = new byte[0];
 
         public ChangeNotifyResponse() : base(SMB2CommandName.ChangeNotify)
         {

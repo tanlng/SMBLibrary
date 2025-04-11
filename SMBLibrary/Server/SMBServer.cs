@@ -6,11 +6,15 @@
  */
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
+using System.Xml.Serialization;
 using SMBLibrary.Authentication.GSSAPI;
 using SMBLibrary.NetBios;
+using SMBLibrary.RPC;
 using SMBLibrary.SMB1;
 using SMBLibrary.SMB2;
 using Utilities;
@@ -112,7 +116,7 @@ namespace SMBLibrary.Server
 #if !NET20
                     m_sendSMBKeepAliveCancellationTokenSource = new CancellationTokenSource();
 #endif
-                    m_sendSMBKeepAliveThread = new Thread(delegate()
+                    m_sendSMBKeepAliveThread = new Thread(delegate ()
                     {
                         while (m_listening)
                         {
@@ -196,7 +200,7 @@ namespace SMBLibrary.Server
             {
                 ConnectionState state = new ConnectionState(clientSocket, clientEndPoint, Log);
                 state.LogToServer(Severity.Verbose, "New connection request accepted");
-                Thread senderThread = new Thread(delegate()
+                Thread senderThread = new Thread(delegate ()
                 {
                     ProcessSendQueue(state);
                 });
@@ -428,7 +432,16 @@ namespace SMBLibrary.Server
                 return;
             }
         }
-
+        static DateTime lastPrintTime = DateTime.MinValue;
+        static readonly TimeSpan printInterval = TimeSpan.FromSeconds(2);
+        static void PrintWithInterval(ConnectionState state, string message)
+        {
+            if (DateTime.Now - lastPrintTime >= printInterval)
+            {
+                state.LogToServer(Severity.Debug, message);
+                lastPrintTime = DateTime.Now;
+            }
+        }
         private void ProcessSendQueue(ConnectionState state)
         {
             state.LogToServer(Severity.Trace, "Entering ProcessSendQueue");
@@ -443,8 +456,17 @@ namespace SMBLibrary.Server
                 Socket clientSocket = state.ClientSocket;
                 try
                 {
+                    // 开始测量发送耗时
+                    Stopwatch sendStopwatch = Stopwatch.StartNew();
                     byte[] responseBytes = response.GetBytes();
                     clientSocket.Send(responseBytes);
+                    sendStopwatch.Stop();
+                    // 计算发送速度（单位：字节/秒）
+                    double sendSpeed = (double)responseBytes.Length / 1024 / 1024 / (sendStopwatch.Elapsed.TotalSeconds);
+                    if (responseBytes.Length > 1024)
+                    {
+                        PrintWithInterval(state, $"send {response.Type} {responseBytes.Length}/{sendStopwatch.Elapsed.TotalSeconds} 速度: {sendSpeed:F2} MB/秒 | 队列剩余{state.SendQueue.Count} | activeConnections 数量 {m_connectionManager.ActiveConnectionsCount}");
+                    }
                 }
                 catch (SocketException ex)
                 {
