@@ -14,7 +14,7 @@ namespace SMBLibrary.Server
     internal class ConnectionManager
     {
         private List<ConnectionState> m_activeConnections = new List<ConnectionState>();
-
+        public int ActiveConnectionsCount => m_activeConnections.Count;
         public void AddConnection(ConnectionState connection)
         {
             lock (m_activeConnections)
@@ -27,6 +27,15 @@ namespace SMBLibrary.Server
         {
             lock (m_activeConnections)
             {
+
+                try
+                {
+                    connection.ClientSocket.Close();
+                }
+                catch (Exception ex)
+                {
+                    connection.LogToServer(Severity.Error, "RemoveConnect Close exception:" + ex.Message);
+                }
                 int connectionIndex = m_activeConnections.IndexOf(connection);
                 if (connectionIndex >= 0)
                 {
