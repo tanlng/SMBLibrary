@@ -7,11 +7,14 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
+using System.Xml.Serialization;
 using SMBLibrary.Authentication.GSSAPI;
 using SMBLibrary.NetBios;
+using SMBLibrary.RPC;
 using SMBLibrary.SMB1;
 using SMBLibrary.SMB2;
 using Utilities;

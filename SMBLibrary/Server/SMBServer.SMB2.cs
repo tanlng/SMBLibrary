@@ -6,6 +6,8 @@
  */
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Xml.Serialization;
 using SMBLibrary.NetBios;
 using SMBLibrary.Server.SMB2;
 using SMBLibrary.SMB2;
@@ -17,6 +19,10 @@ namespace SMBLibrary.Server
     {
         private void ProcessSMB2RequestChain(List<SMB2Command> requestChain, ref ConnectionState state)
         {
+            foreach (var item in requestChain)
+            {
+                state.LogToServer(Severity.Trace, $"Request {item.GetType().Name} \r\n" + Utilities.JsonConvertHelper.Serialize(item));
+            }
             List<SMB2Command> responseChain = new List<SMB2Command>();
             FileID? fileID = null;
             NTStatus? fileIDStatus = null;
@@ -228,6 +234,10 @@ namespace SMBLibrary.Server
 
         private static void EnqueueResponseChain(ConnectionState state, List<SMB2Command> responseChain)
         {
+            foreach (var item in responseChain)
+            {
+                state.LogToServer(Severity.Trace, $"Response  {item.GetType().Name} \r\n" + Utilities.JsonConvertHelper.Serialize(item));
+            }
             byte[] signingKey = null;
             if (state is SMB2ConnectionState)
             {
