@@ -471,7 +471,10 @@ namespace SMBLibrary.Win32
                 requestAddedEvent.Set();
                 // There is a possibility of race condition if the caller will wait for STATUS_PENDING and then immediate call Cancel, but this scenario is very unlikely.
                 NTStatus status = NtNotifyChangeDirectoryFile((IntPtr)handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, out request.IOStatusBlock, buffer, (uint)buffer.Length, completionFilter, watchTree);
+
+#if DEBUG
                 logger.Debug($"NotifyChange trigger {path} {handle}");
+#endif
                 if (status == NTStatus.STATUS_SUCCESS)
                 {
                     int length = (int)request.IOStatusBlock.Information;
@@ -501,14 +504,18 @@ namespace SMBLibrary.Win32
                 }
                 onNotifyChangeCompleted(status, buffer, context);
                 m_pendingRequests.Remove((IntPtr)handle, request.ThreadID);
+#if DEBUG
                 logger.Debug($"NotifyChange unwatch {path} {handle}");
+#endif
             });
             m_thread.Start();
 
             // We must wait for the request to be added in order for Cancel to function properly.
             requestAddedEvent.WaitOne();
             ioRequest = request;
+#if DEBUG
             logger.Debug($"NotifyChange watch end {path} {handle}");
+#endif
             return NTStatus.STATUS_PENDING;
         }
 
