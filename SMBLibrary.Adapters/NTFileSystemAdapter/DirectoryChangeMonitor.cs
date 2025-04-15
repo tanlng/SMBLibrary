@@ -24,9 +24,11 @@ namespace SMBLibrary.Adapters
         private ManualResetEvent _resetEvent;
         private byte[] _buffer;
         private bool _disposed = false;
+        private bool _isBlueberry;
 
-        public DirectoryChangeMonitor()
+        public DirectoryChangeMonitor(bool isBlueberry)
         {
+            _isBlueberry = isBlueberry;
             _watcher = new FileSystemWatcher();
             _resetEvent = new ManualResetEvent(false);
         }
@@ -119,9 +121,30 @@ namespace SMBLibrary.Adapters
             if (_disposed) return;
 
             uint action = GetActionCode(e.ChangeType);
-            string fileName = Path.GetFileName(e.FullPath);
+
+            string fileName = GetName(e.FullPath);
             _buffer = CreateFileNotifyInformationBuffer(action, fileName);
             _resetEvent.Set();
+        }
+        private string GetName(string localPath)
+        {
+            if (!_isBlueberry)
+            {
+                return Path.GetFileName(localPath);
+            }
+            if (Directory.Exists(localPath))
+            {
+                return Path.GetFileName(localPath);
+            }
+            else
+            {
+                var lastIndex = localPath.LastIndexOf(".-_-");
+                if (lastIndex != -1)
+                {
+                    localPath = localPath.Substring(0, lastIndex);
+                }
+                return Path.GetFileName(localPath);
+            }
         }
 
         private void OnDirectoryRenamed(object sender, RenamedEventArgs e)
@@ -130,7 +153,7 @@ namespace SMBLibrary.Adapters
 
             // 处理重命名事件，这里可以根据需要扩展
             uint action = 0x00000004; // 假设重命名的 Action 代码
-            string fileName = Path.GetFileName(e.FullPath);
+            string fileName = GetName(e.FullPath);
             _buffer = CreateFileNotifyInformationBuffer(action, fileName);
             _resetEvent.Set();
         }

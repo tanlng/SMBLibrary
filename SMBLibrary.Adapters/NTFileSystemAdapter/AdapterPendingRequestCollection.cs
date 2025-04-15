@@ -32,7 +32,7 @@ namespace SMBLibrary.Win32
             lock (m_handleToNotifyChangeRequests)
             {
                 List<AdapterPendingRequest> pendingRequests;
-                bool containsKey = m_handleToNotifyChangeRequests.TryGetValue(request.FileHandle.UUID, out pendingRequests);
+                bool containsKey = m_handleToNotifyChangeRequests.TryGetValue(request.FileHandle.GUID, out pendingRequests);
                 if (containsKey)
                 {
                     pendingRequests.Add(request);
@@ -41,7 +41,7 @@ namespace SMBLibrary.Win32
                 {
                     pendingRequests = new List<AdapterPendingRequest>();
                     pendingRequests.Add(request);
-                    m_handleToNotifyChangeRequests.Add(request.FileHandle.UUID, pendingRequests);
+                    m_handleToNotifyChangeRequests.Add(request.FileHandle.GUID, pendingRequests);
                 }
             }
         }
@@ -51,7 +51,7 @@ namespace SMBLibrary.Win32
             lock (m_handleToNotifyChangeRequests)
             {
                 List<AdapterPendingRequest> pendingRequests;
-                bool containsKey = m_handleToNotifyChangeRequests.TryGetValue(handle.UUID, out pendingRequests);
+                bool containsKey = m_handleToNotifyChangeRequests.TryGetValue(handle.GUID, out pendingRequests);
                 if (containsKey)
                 {
                     for (int index = 0; index < pendingRequests.Count; index++)
@@ -65,7 +65,7 @@ namespace SMBLibrary.Win32
 
                     if (pendingRequests.Count == 0)
                     {
-                        m_handleToNotifyChangeRequests.Remove(handle.UUID);
+                        m_handleToNotifyChangeRequests.Remove(handle.GUID);
                     }
                 }
             }
@@ -74,7 +74,7 @@ namespace SMBLibrary.Win32
         public List<AdapterPendingRequest> GetRequestsByHandle(FileHandle handle)
         {
             List<AdapterPendingRequest> pendingRequests;
-            bool containsKey = m_handleToNotifyChangeRequests.TryGetValue(handle.UUID, out pendingRequests);
+            bool containsKey = m_handleToNotifyChangeRequests.TryGetValue(handle.GUID, out pendingRequests);
             if (containsKey)
             {
                 return new List<AdapterPendingRequest>(pendingRequests);
