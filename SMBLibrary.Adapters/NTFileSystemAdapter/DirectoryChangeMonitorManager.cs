@@ -13,9 +13,9 @@ namespace SMBLibrary.Adapters
         }
 
         // 创建一个新的 DirectoryChangeMonitor 实例并开始监听
-        public static DirectoryChangeMonitor CreateMonitor()
+        public static DirectoryChangeMonitor CreateMonitor(bool isBlueberry)
         {
-            DirectoryChangeMonitor monitor = new DirectoryChangeMonitor();
+            DirectoryChangeMonitor monitor = new DirectoryChangeMonitor(isBlueberry);
             _monitors.Add(monitor);
             return monitor;
         }
