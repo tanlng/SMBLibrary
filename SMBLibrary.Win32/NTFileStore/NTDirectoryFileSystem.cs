@@ -5,11 +5,14 @@
  * either version 3 of the License, or (at your option) any later version.
  */
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
+using SMBLibrary.Utilities;
 using Utilities;
 
 namespace SMBLibrary.Win32
@@ -58,7 +61,7 @@ namespace SMBLibrary.Win32
         public IntPtr Information;
     }
 
-    internal class PendingRequest
+    public class PendingRequest
     {
         public IntPtr FileHandle;
         public uint ThreadID;
@@ -68,6 +71,7 @@ namespace SMBLibrary.Win32
 
     public class NTDirectoryFileSystem : INTFileStore
     {
+        static readonly NLog.Logger logger = NLog.LogManager.GetCurrentClassLogger();
         [DllImport("ntdll.dll", ExactSpelling = true, SetLastError = false)]
         private static extern NTStatus NtCreateFile(out IntPtr handle, uint desiredAccess, ref OBJECT_ATTRIBUTES objectAttributes, out IO_STATUS_BLOCK ioStatusBlock, ref long allocationSize, FileAttributes fileAttributes, ShareAccess shareAccess, CreateDisposition createDisposition, CreateOptions createOptions, IntPtr eaBuffer, uint eaLength);
 
@@ -151,6 +155,9 @@ namespace SMBLibrary.Win32
             objectAttributes.Length = Marshal.SizeOf(objectAttributes);
             return objectAttributes;
         }
+#if DEBUG
+        static ConcurrentDictionary<IntPtr, string> _pathsMap = new ConcurrentDictionary<IntPtr, string>();
+#endif
 
         private NTStatus CreateFile(out IntPtr handle, out FileStatus fileStatus, string nativePath, AccessMask desiredAccess, long allocationSize, FileAttributes fileAttributes, ShareAccess shareAccess, CreateDisposition createDisposition, CreateOptions createOptions)
         {
@@ -158,6 +165,10 @@ namespace SMBLibrary.Win32
             OBJECT_ATTRIBUTES objectAttributes = InitializeObjectAttributes(objectName);
             IO_STATUS_BLOCK ioStatusBlock;
             NTStatus status = NtCreateFile(out handle, (uint)desiredAccess, ref objectAttributes, out ioStatusBlock, ref allocationSize, fileAttributes, shareAccess, createDisposition, createOptions, IntPtr.Zero, 0);
+
+#if DEBUG
+            _pathsMap.TryAdd(handle, nativePath);
+#endif
             fileStatus = (FileStatus)ioStatusBlock.Information;
             return status;
         }
@@ -172,6 +183,14 @@ namespace SMBLibrary.Win32
         }
 
         public NTStatus CreateFile(out object handle, out FileStatus fileStatus, string path, AccessMask desiredAccess, FileAttributes fileAttributes, ShareAccess shareAccess, CreateDisposition createDisposition, CreateOptions createOptions, SecurityContext securityContext)
+        {
+            logger.Debug($"CreateFile {path} {desiredAccess} {createDisposition} {createOptions}");
+            var result2 = CreateFileBase(out handle, out fileStatus, path, desiredAccess, fileAttributes, shareAccess, createDisposition, createOptions);
+            logger.Debug($"{JsonConvertHelper.Serialize(handle)} {fileStatus} {result2}");
+            return result2;
+        }
+
+        private NTStatus CreateFileBase(out object handle, out FileStatus fileStatus, string path, AccessMask desiredAccess, FileAttributes fileAttributes, ShareAccess shareAccess, CreateDisposition createDisposition, CreateOptions createOptions)
         {
             IntPtr fileHandle;
             string nativePath = ToNativePath(path);
@@ -197,6 +216,11 @@ namespace SMBLibrary.Win32
 
         public NTStatus CloseFile(object handle)
         {
+#if DEBUG
+            _pathsMap.TryGetValue((IntPtr)handle, out var path);
+            logger.Debug($"CloseFile {path}");
+#endif
+
             // [MS-FSA] 2.1.5.4 The close operation has to complete any pending ChangeNotify request with STATUS_NOTIFY_CLEANUP.
             // - When closing a synchronous handle we must explicitly cancel any pending ChangeNotify request, otherwise the call to NtClose will hang.
             //   We use request.Cleanup to tell that we should complete such ChangeNotify request with STATUS_NOTIFY_CLEANUP.
@@ -261,6 +285,14 @@ namespace SMBLibrary.Win32
 
         public NTStatus QueryDirectory(out List<QueryDirectoryFileInformation> result, object handle, string fileName, FileInformationClass informationClass)
         {
+            logger.Debug($"QueryDirectory {JsonConvertHelper.Serialize(handle)} {fileName} {JsonConvertHelper.Serialize(informationClass)}");
+            var result2 = QueryDirectoryBase(out result, handle, fileName, informationClass);
+            logger.Debug($"{JsonConvertHelper.Serialize(result)} {result2}");
+            return result2;
+        }
+
+        private static NTStatus QueryDirectoryBase(out List<QueryDirectoryFileInformation> result, object handle, string fileName, FileInformationClass informationClass)
+        {
             IO_STATUS_BLOCK ioStatusBlock;
             byte[] buffer = new byte[QueryDirectoryBufferSize];
             UNICODE_STRING fileNameStructure = new UNICODE_STRING(fileName);
@@ -288,6 +320,17 @@ namespace SMBLibrary.Win32
 
         public NTStatus GetFileInformation(out FileInformation result, object handle, FileInformationClass informationClass)
         {
+#if DEBUG
+            _pathsMap.TryGetValue((IntPtr)handle, out var path);
+            logger.Debug($"GetFileInformation {path}  {JsonConvertHelper.Serialize(informationClass)}");
+#endif
+            var result2 = GetFileInformationBase(out result, handle, informationClass);
+            logger.Debug($"{JsonConvertHelper.Serialize(result)} {result2}");
+            return result2;
+        }
+
+        private static NTStatus GetFileInformationBase(out FileInformation result, object handle, FileInformationClass informationClass)
+        {
             IO_STATUS_BLOCK ioStatusBlock;
             byte[] buffer = new byte[FileInformationBufferSize];
             NTStatus status = NtQueryInformationFile((IntPtr)handle, out ioStatusBlock, buffer, (uint)buffer.Length, (uint)informationClass);
@@ -305,6 +348,17 @@ namespace SMBLibrary.Win32
         }
 
         public NTStatus SetFileInformation(object handle, FileInformation information)
+        {
+#if DEBUG
+            _pathsMap.TryGetValue((IntPtr)handle, out var path);
+            logger.Debug($"SetFileInformation {path} {JsonConvertHelper.Serialize(information)}");
+#endif
+            var result2 = SetFileInformationBase(handle, information);
+            logger.Debug($"{result2}");
+            return result2;
+        }
+
+        private NTStatus SetFileInformationBase(object handle, FileInformation information)
         {
             IO_STATUS_BLOCK ioStatusBlock;
             if (information is FileRenameInformationType2)
@@ -352,6 +406,14 @@ namespace SMBLibrary.Win32
 
         public NTStatus GetFileSystemInformation(out FileSystemInformation result, FileSystemInformationClass informationClass)
         {
+            logger.Debug($"GetFileSystemInformation {JsonConvertHelper.Serialize(informationClass)}");
+            var result2 = GetFileSystemInformationBase(out result, informationClass);
+            logger.Debug($"{JsonConvertHelper.Serialize(result)} {result2}");
+            return result2;
+        }
+
+        private NTStatus GetFileSystemInformationBase(out FileSystemInformation result, FileSystemInformationClass informationClass)
+        {
             IO_STATUS_BLOCK ioStatusBlock;
             byte[] buffer = new byte[FileSystemInformationBufferSize];
             IntPtr volumeHandle;
@@ -393,10 +455,14 @@ namespace SMBLibrary.Win32
 
         public NTStatus NotifyChange(out object ioRequest, object handle, NotifyChangeFilter completionFilter, bool watchTree, int outputBufferSize, OnNotifyChangeCompleted onNotifyChangeCompleted, object context)
         {
+#if DEBUG
+            _pathsMap.TryGetValue((IntPtr)handle, out var path);
+            logger.Debug($"NotifyChange watch start {path} {handle}");
+#endif
             byte[] buffer = new byte[outputBufferSize];
             ManualResetEvent requestAddedEvent = new ManualResetEvent(false);
             PendingRequest request = new PendingRequest();
-            Thread m_thread = new Thread(delegate()
+            Thread m_thread = new Thread(delegate ()
             {
                 request.FileHandle = (IntPtr)handle;
                 request.ThreadID = ThreadingHelper.GetCurrentThreadId();
@@ -405,6 +471,7 @@ namespace SMBLibrary.Win32
                 requestAddedEvent.Set();
                 // There is a possibility of race condition if the caller will wait for STATUS_PENDING and then immediate call Cancel, but this scenario is very unlikely.
                 NTStatus status = NtNotifyChangeDirectoryFile((IntPtr)handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, out request.IOStatusBlock, buffer, (uint)buffer.Length, completionFilter, watchTree);
+                logger.Debug($"NotifyChange trigger {path} {handle}");
                 if (status == NTStatus.STATUS_SUCCESS)
                 {
                     int length = (int)request.IOStatusBlock.Information;
@@ -434,18 +501,21 @@ namespace SMBLibrary.Win32
                 }
                 onNotifyChangeCompleted(status, buffer, context);
                 m_pendingRequests.Remove((IntPtr)handle, request.ThreadID);
+                logger.Debug($"NotifyChange unwatch {path} {handle}");
             });
             m_thread.Start();
 
             // We must wait for the request to be added in order for Cancel to function properly.
             requestAddedEvent.WaitOne();
             ioRequest = request;
+            logger.Debug($"NotifyChange watch end {path} {handle}");
             return NTStatus.STATUS_PENDING;
         }
 
         public NTStatus Cancel(object ioRequest)
         {
             PendingRequest request = (PendingRequest)ioRequest;
+            logger.Debug($"Cancel {JsonConvertHelper.Serialize(request)}");
             const uint THREAD_TERMINATE = 0x00000001;
             const uint THREAD_ALERT = 0x00000004;
             uint threadID = request.ThreadID;
@@ -479,6 +549,11 @@ namespace SMBLibrary.Win32
 
             ThreadingHelper.CloseHandle(threadHandle);
             m_pendingRequests.Remove(request.FileHandle, request.ThreadID);
+#if DEBUG
+            _pathsMap.TryGetValue((IntPtr)request.FileHandle, out var path);
+            logger.Debug($"NotifyChange unwatch {path} {request.FileHandle}");
+#endif
+
             return status;
         }
 

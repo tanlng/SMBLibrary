@@ -21,7 +21,7 @@ namespace SMBLibrary.Utilities
             {
                 property.Ignored = true;
             }
-            
+
 
 
             return property;
@@ -34,6 +34,7 @@ namespace SMBLibrary.Utilities
             JsonSerializerSettings settings = new JsonSerializerSettings
             {
                 ContractResolver = new IgnorePropertiesContractResolver(),
+                Formatting = Formatting.Indented
             };
 
             string json = JsonConvert.SerializeObject(obj, settings);

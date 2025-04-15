@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using SMBLibrary.Authentication;
 using SMBLibrary.SMB2;
+using SMBLibrary.Utilities;
 using Utilities;
 
 namespace SMBLibrary.Server.SMB2
@@ -48,6 +49,9 @@ namespace SMBLibrary.Server.SMB2
                     return new ErrorResponse(request.CommandName, searchStatus);
                 }
                 state.LogToServer(Severity.Information, "Query Directory on '{0}{1}', Searched for '{2}', found {3} matching entries", share.Name, openFile.Path, request.FileName, entries.Count);
+#if DEBUG
+                state.LogToServer(Severity.Trace, JsonConvertHelper.Serialize(entries));
+#endif
                 openSearch = session.AddOpenSearch(fileID, entries, 0);
             }
 
@@ -97,7 +101,7 @@ namespace SMBLibrary.Server.SMB2
                     break;
                 }
             }
-            
+
             QueryDirectoryResponse response = new QueryDirectoryResponse();
             response.SetFileInformationList(page);
             return response;

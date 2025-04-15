@@ -17,6 +17,7 @@ namespace SMBLibrary
         public bool IsDirectory;
         public Stream Stream;
         public bool DeleteOnClose;
+        public string UUID { get; set; }
 
         public FileHandle(string path, bool isDirectory, Stream stream, bool deleteOnClose)
         {
@@ -24,6 +25,7 @@ namespace SMBLibrary
             IsDirectory = isDirectory;
             Stream = stream;
             DeleteOnClose = deleteOnClose;
+            UUID = Guid.NewGuid().ToString();
         }
     }
 }
