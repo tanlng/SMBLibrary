@@ -72,36 +72,18 @@ namespace SMBLibrary.Server.SMB2
                     AddMxAcContext(response);
                 }
 
+                //if (handle is FileHandle fileHandle && !fileHandle.IsDirectory)
+                //{
+                if (extraInfosKeys.Any(k => k == "RqLs"))
+                {
+                    AddRlContext(request.CreateContexts.First(c => c.Name == "RqLs"), response);
+                }
+                //}
+
                 if (extraInfosKeys.Any(k => k == "QFid"))
                 {
                     AddQFidContext(fileID.Value, response);
                 }
-                if (extraInfosKeys.Any(k => k == "DH2Q"))
-                {
-                    if (extraInfosKeys.Any(k => k == "RqLs"))
-                    {
-                        AddRlContext(request.CreateContexts.First(c => c.Name == "RqLs"), response);
-                    }
-                    else
-                    {
-                        AddRlContext(new CreateContext()
-                        {
-                            Name = "RqLs",
-                            Data = new LeaseV2CreateContextData()
-                            {
-                                LeaseKey = Guid.NewGuid(),
-                                LeaseState = 0x00000007,
-                                LeaseFlags = 0x00000000,
-                                LeaseDuration = 0x0000000000000000,
-                                ParentLeaseKey = Guid.Empty,
-                                LeaseEpoch = 0x0001,
-                                LeaseReserved = 0x0000
-                            }.ToBuffer(),
-                            Next = 0
-                        }, response);
-                    }
-                }
-
                 return response;
             }
         }
