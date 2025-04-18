@@ -67,14 +67,85 @@ namespace SMBLibrary.Server.SMB2
                 FileNetworkOpenInformation fileInfo = NTFileStoreHelper.GetNetworkOpenInformation(share.FileStore, handle);
                 CreateResponse response = CreateResponseFromFileSystemEntry(fileInfo, fileID.Value, fileStatus);
                 var extraInfosKeys = request.CreateContexts.Select(c => c.Name).ToArray();
+                if (extraInfosKeys.Any(k => k == "MxAc"))
+                {
+                    AddMxAcContext(response);
+                }
+
                 if (extraInfosKeys.Any(k => k == "QFid"))
                 {
                     AddQFidContext(fileID.Value, response);
                 }
+                if (extraInfosKeys.Any(k => k == "RqLs"))
+                {
+                    AddRlContext(request.CreateContexts.First(c => c.Name == "RqLs"), response);
+                }
+#if DEBUG
+                else
+                {
+                    AddRlContext(new CreateContext()
+                    {
+                        Name = "RqLs",
+                        Data = new LeaseV2CreateContextData()
+                        {
+                            LeaseKey = Guid.Parse("d1acd010-9f06-ffff-b709-000000000000"),
+                            LeaseState = 0x00000007,
+                            LeaseFlags = 0x00000000,
+                            LeaseDuration = 0x0000000000000000,
+                            ParentLeaseKey = Guid.Empty,
+                            LeaseEpoch = 0x0001,
+                            LeaseReserved = 0x0000
+                        }.ToBuffer(),
+                        Next = 0
+                    }, response);
+                }
+#endif
+
                 return response;
             }
         }
 
+        // 从 request.CreateContexts 提取信息或生成租赁密钥
+        private static uint GenerateLeaseKey(CreateRequest request)
+        {
+            // 从 CreateContexts 中提取 "LeaseKey" (示例)
+            var leaseKeyContext = request.CreateContexts.FirstOrDefault(c => c.Name == "LeaseKey");
+            if (leaseKeyContext != null)
+            {
+                return BitConverter.ToUInt32(leaseKeyContext.Data, 0);
+            }
+
+            // 如果未找到，生成默认值
+            return (uint)new Random().Next(0, int.MaxValue);
+        }
+
+        // 动态生成租赁状态
+        private static ulong GenerateLeaseState(CreateRequest request)
+        {
+            // 示例：根据请求路径生成状态的哈希值
+            return (ulong)request.Name.GetHashCode();
+        }
+
+        // 动态生成租赁序列号
+        private static uint GenerateLeaseSequenceNumber(CreateRequest request)
+        {
+            // 示例：使用随机数生成
+            return (uint)new Random().Next(1, 1000);
+        }
+
+        // 动态生成持久句柄 ID
+        private static uint GenerateDurableHandleId(CreateRequest request)
+        {
+            // 示例：根据租赁密钥生成
+            return (uint)GenerateLeaseKey(request) ^ 0x87654321; // XOR 操作
+        }
+
+        // 动态生成持久 GUID
+        private static Guid GenerateDurableGuid(CreateRequest request)
+        {
+            // 示例：动态生成新 GUID
+            return Guid.NewGuid();
+        }
         private static CreateResponse CreateResponseForNamedPipe(FileID fileID, FileStatus fileStatus)
         {
             CreateResponse response = new CreateResponse();
@@ -150,6 +221,18 @@ namespace SMBLibrary.Server.SMB2
                 Next = 0                      // 最后一个元素时Next=0，或由链式处理设置
             };
             response.CreateContexts.Add(qfidContext);
+        }
+
+        public static void AddRlContext(CreateContext rlRequest, CreateResponse response)
+        {
+            var rqlsContext = LeaseV2CreateContextData.BufferToLeaseV2CreateContextData(rlRequest.Data);
+            rqlsContext.LeaseEpoch++;
+            response.CreateContexts.Add(new CreateContext()
+            {
+                Name = "RqLs",
+                Data = rqlsContext.ToBuffer(),
+                Next = 0
+            });
         }
     }
 }

@@ -10,6 +10,160 @@ using Utilities;
 
 namespace SMBLibrary.SMB2
 {
+    public class LeaseV2CreateContextData
+    {
+        public Guid LeaseKey { get; set; }
+        public uint LeaseState { get; set; }
+        public uint LeaseFlags { get; set; }
+        public ulong LeaseDuration { get; set; }
+        public Guid ParentLeaseKey { get; set; }
+        public ushort LeaseEpoch { get; set; }
+        public ushort LeaseReserved { get; set; }
+
+        public byte[] ToBuffer()
+        {
+            // 计算 Buffer 大小
+            int bufferSize = 16 + 4 + 4 + 8 + 16 + 2 + 2;
+            byte[] buffer = new byte[bufferSize];
+
+            int offset = 0;
+
+            // 将 Lease Key 写入 Buffer
+            byte[] leaseKeyBytes = LeaseKey.ToByteArray();
+            Array.Copy(leaseKeyBytes, 0, buffer, offset, leaseKeyBytes.Length);
+            offset += leaseKeyBytes.Length;
+
+            // 将 Lease State 写入 Buffer
+            byte[] leaseStateBytes = BitConverter.GetBytes(LeaseState);
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(leaseStateBytes);
+            }
+            Array.Copy(leaseStateBytes, 0, buffer, offset, leaseStateBytes.Length);
+            offset += leaseStateBytes.Length;
+
+            // 将 Lease Flags 写入 Buffer
+            byte[] leaseFlagsBytes = BitConverter.GetBytes(LeaseFlags);
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(leaseFlagsBytes);
+            }
+            Array.Copy(leaseFlagsBytes, 0, buffer, offset, leaseFlagsBytes.Length);
+            offset += leaseFlagsBytes.Length;
+
+            // 将 Lease Duration 写入 Buffer
+            byte[] leaseDurationBytes = BitConverter.GetBytes(LeaseDuration);
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(leaseDurationBytes);
+            }
+            Array.Copy(leaseDurationBytes, 0, buffer, offset, leaseDurationBytes.Length);
+            offset += leaseDurationBytes.Length;
+
+            // 将 Parent Lease Key 写入 Buffer
+            byte[] parentLeaseKeyBytes = ParentLeaseKey.ToByteArray();
+            Array.Copy(parentLeaseKeyBytes, 0, buffer, offset, parentLeaseKeyBytes.Length);
+            offset += parentLeaseKeyBytes.Length;
+
+            // 将 Lease Epoch 写入 Buffer
+            byte[] leaseEpochBytes = BitConverter.GetBytes(LeaseEpoch);
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(leaseEpochBytes);
+            }
+            Array.Copy(leaseEpochBytes, 0, buffer, offset, leaseEpochBytes.Length);
+            offset += leaseEpochBytes.Length;
+
+            // 将 Lease Reserved 写入 Buffer
+            byte[] leaseReservedBytes = BitConverter.GetBytes(LeaseReserved);
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(leaseReservedBytes);
+            }
+            Array.Copy(leaseReservedBytes, 0, buffer, offset, leaseReservedBytes.Length);
+
+            return buffer;
+        }
+        // 将 buffer 转换为对象的方法
+        public static LeaseV2CreateContextData BufferToLeaseV2CreateContextData(byte[] buffer)
+        {
+            int offset = 0;
+
+            // 读取 Lease Key
+            byte[] leaseKeyBytes = new byte[16];
+            Array.Copy(buffer, offset, leaseKeyBytes, 0, 16);
+            Guid leaseKey = new Guid(leaseKeyBytes);
+            offset += 16;
+
+            // 读取 Lease State
+            byte[] leaseStateBytes = new byte[4];
+            Array.Copy(buffer, offset, leaseStateBytes, 0, 4);
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(leaseStateBytes);
+            }
+            uint leaseState = BitConverter.ToUInt32(leaseStateBytes, 0);
+            offset += 4;
+
+            // 读取 Lease Flags
+            byte[] leaseFlagsBytes = new byte[4];
+            Array.Copy(buffer, offset, leaseFlagsBytes, 0, 4);
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(leaseFlagsBytes);
+            }
+            uint leaseFlags = BitConverter.ToUInt32(leaseFlagsBytes, 0);
+            offset += 4;
+
+            // 读取 Lease Duration
+            byte[] leaseDurationBytes = new byte[8];
+            Array.Copy(buffer, offset, leaseDurationBytes, 0, 8);
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(leaseDurationBytes);
+            }
+            ulong leaseDuration = BitConverter.ToUInt64(leaseDurationBytes, 0);
+            offset += 8;
+
+            // 读取 Parent Lease Key
+            byte[] parentLeaseKeyBytes = new byte[16];
+            Array.Copy(buffer, offset, parentLeaseKeyBytes, 0, 16);
+            Guid parentLeaseKey = new Guid(parentLeaseKeyBytes);
+            offset += 16;
+
+            // 读取 Lease Epoch
+            byte[] leaseEpochBytes = new byte[2];
+            Array.Copy(buffer, offset, leaseEpochBytes, 0, 2);
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(leaseEpochBytes);
+            }
+            ushort leaseEpoch = BitConverter.ToUInt16(leaseEpochBytes, 0);
+            offset += 2;
+
+            // 读取 Lease Reserved
+            byte[] leaseReservedBytes = new byte[2];
+            Array.Copy(buffer, offset, leaseReservedBytes, 0, 2);
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(leaseReservedBytes);
+            }
+            ushort leaseReserved = BitConverter.ToUInt16(leaseReservedBytes, 0);
+
+            // 创建并返回 LeaseV2CreateContextData 对象
+            return new LeaseV2CreateContextData
+            {
+                LeaseKey = leaseKey,
+                LeaseState = leaseState,
+                LeaseFlags = leaseFlags,
+                LeaseDuration = leaseDuration,
+                ParentLeaseKey = parentLeaseKey,
+                LeaseEpoch = leaseEpoch,
+                LeaseReserved = leaseReserved
+            };
+        }
+    }
+
     /// <summary>
     /// [MS-SMB2] 2.2.13.2 - SMB2_CREATE_CONTEXT
     /// </summary>
