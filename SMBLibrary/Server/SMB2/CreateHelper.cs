@@ -76,30 +76,31 @@ namespace SMBLibrary.Server.SMB2
                 {
                     AddQFidContext(fileID.Value, response);
                 }
-                if (extraInfosKeys.Any(k => k == "RqLs"))
+                if (extraInfosKeys.Any(k => k == "DH2Q"))
                 {
-                    AddRlContext(request.CreateContexts.First(c => c.Name == "RqLs"), response);
-                }
-#if DEBUG
-                else
-                {
-                    AddRlContext(new CreateContext()
+                    if (extraInfosKeys.Any(k => k == "RqLs"))
                     {
-                        Name = "RqLs",
-                        Data = new LeaseV2CreateContextData()
+                        AddRlContext(request.CreateContexts.First(c => c.Name == "RqLs"), response);
+                    }
+                    else
+                    {
+                        AddRlContext(new CreateContext()
                         {
-                            LeaseKey = Guid.Parse("d1acd010-9f06-ffff-b709-000000000000"),
-                            LeaseState = 0x00000007,
-                            LeaseFlags = 0x00000000,
-                            LeaseDuration = 0x0000000000000000,
-                            ParentLeaseKey = Guid.Empty,
-                            LeaseEpoch = 0x0001,
-                            LeaseReserved = 0x0000
-                        }.ToBuffer(),
-                        Next = 0
-                    }, response);
+                            Name = "RqLs",
+                            Data = new LeaseV2CreateContextData()
+                            {
+                                LeaseKey = Guid.NewGuid(),
+                                LeaseState = 0x00000007,
+                                LeaseFlags = 0x00000000,
+                                LeaseDuration = 0x0000000000000000,
+                                ParentLeaseKey = Guid.Empty,
+                                LeaseEpoch = 0x0001,
+                                LeaseReserved = 0x0000
+                            }.ToBuffer(),
+                            Next = 0
+                        }, response);
+                    }
                 }
-#endif
 
                 return response;
             }
