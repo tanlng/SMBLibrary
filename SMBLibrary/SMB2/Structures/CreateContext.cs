@@ -10,6 +10,106 @@ using Utilities;
 
 namespace SMBLibrary.SMB2
 {
+    // 定义 DH2QCreateContextData 类
+    public class DH2QCreateContextData
+    {
+        public uint Timeout { get; set; }
+        public uint Flags { get; set; }
+        public ulong Reserved { get; set; }
+        public Guid CreateGuid { get; set; }
+
+        // 将对象转换为 buffer 的方法
+        public byte[] ToBuffer()
+        {
+            int bufferSize = 4 + 4 + 8 + 16;
+            byte[] buffer = new byte[bufferSize];
+            int offset = 0;
+
+            // 写入 Timeout
+            byte[] timeoutBytes = BitConverter.GetBytes(Timeout);
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(timeoutBytes);
+            }
+            Array.Copy(timeoutBytes, 0, buffer, offset, 4);
+            offset += 4;
+
+            // 写入 Flags
+            byte[] flagsBytes = BitConverter.GetBytes(Flags);
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(flagsBytes);
+            }
+            Array.Copy(flagsBytes, 0, buffer, offset, 4);
+            offset += 4;
+
+            // 写入 Reserved
+            byte[] reservedBytes = BitConverter.GetBytes(Reserved);
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(reservedBytes);
+            }
+            Array.Copy(reservedBytes, 0, buffer, offset, 8);
+            offset += 8;
+
+            // 写入 Create Guid
+            byte[] createGuidBytes = CreateGuid.ToByteArray();
+            Array.Copy(createGuidBytes, 0, buffer, offset, 16);
+
+            return buffer;
+        }
+
+        // 将 buffer 转换为对象的方法
+        public static DH2QCreateContextData BufferToDH2QCreateContextData(byte[] buffer)
+        {
+            int offset = 0;
+
+            // 读取 Timeout
+            byte[] timeoutBytes = new byte[4];
+            Array.Copy(buffer, offset, timeoutBytes, 0, 4);
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(timeoutBytes);
+            }
+            uint timeout = BitConverter.ToUInt32(timeoutBytes, 0);
+            offset += 4;
+
+            // 读取 Flags
+            byte[] flagsBytes = new byte[4];
+            Array.Copy(buffer, offset, flagsBytes, 0, 4);
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(flagsBytes);
+            }
+            uint flags = BitConverter.ToUInt32(flagsBytes, 0);
+            offset += 4;
+
+            // 读取 Reserved
+            byte[] reservedBytes = new byte[8];
+            Array.Copy(buffer, offset, reservedBytes, 0, 8);
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(reservedBytes);
+            }
+            ulong reserved = BitConverter.ToUInt64(reservedBytes, 0);
+            offset += 8;
+
+            // 读取 Create Guid
+            byte[] createGuidBytes = new byte[16];
+            Array.Copy(buffer, offset, createGuidBytes, 0, 16);
+            Guid createGuid = new Guid(createGuidBytes);
+
+            // 创建并返回 DH2QCreateContextData 对象
+            return new DH2QCreateContextData
+            {
+                Timeout = timeout,
+                Flags = flags,
+                Reserved = reserved,
+                CreateGuid = createGuid
+            };
+        }
+    }
+
     public class LeaseV2CreateContextData
     {
         public Guid LeaseKey { get; set; }
@@ -34,13 +134,8 @@ namespace SMBLibrary.SMB2
             offset += leaseKeyBytes.Length;
 
             // 将 Lease State 写入 Buffer
-            byte[] leaseStateBytes = BitConverter.GetBytes(LeaseState);
-            if (BitConverter.IsLittleEndian)
-            {
-                Array.Reverse(leaseStateBytes);
-            }
-            Array.Copy(leaseStateBytes, 0, buffer, offset, leaseStateBytes.Length);
-            offset += leaseStateBytes.Length;
+            LittleEndianWriter.WriteUInt32(buffer, offset, LeaseState);
+            offset += 4;
 
             // 将 Lease Flags 写入 Buffer
             byte[] leaseFlagsBytes = BitConverter.GetBytes(LeaseFlags);
@@ -66,13 +161,8 @@ namespace SMBLibrary.SMB2
             offset += parentLeaseKeyBytes.Length;
 
             // 将 Lease Epoch 写入 Buffer
-            byte[] leaseEpochBytes = BitConverter.GetBytes(LeaseEpoch);
-            if (BitConverter.IsLittleEndian)
-            {
-                Array.Reverse(leaseEpochBytes);
-            }
-            Array.Copy(leaseEpochBytes, 0, buffer, offset, leaseEpochBytes.Length);
-            offset += leaseEpochBytes.Length;
+            LittleEndianWriter.WriteUInt16(buffer, offset, LeaseEpoch);
+            offset += 2;
 
             // 将 Lease Reserved 写入 Buffer
             byte[] leaseReservedBytes = BitConverter.GetBytes(LeaseReserved);
@@ -96,14 +186,7 @@ namespace SMBLibrary.SMB2
             offset += 16;
 
             // 读取 Lease State
-            byte[] leaseStateBytes = new byte[4];
-            Array.Copy(buffer, offset, leaseStateBytes, 0, 4);
-            if (BitConverter.IsLittleEndian)
-            {
-                Array.Reverse(leaseStateBytes);
-            }
-            uint leaseState = BitConverter.ToUInt32(leaseStateBytes, 0);
-            offset += 4;
+            uint leaseState = LittleEndianReader.ReadUInt32(buffer,ref offset);
 
             // 读取 Lease Flags
             byte[] leaseFlagsBytes = new byte[4];
@@ -285,7 +368,7 @@ namespace SMBLibrary.SMB2
         public static int GetCreateContextListLength(List<CreateContext> createContexts)
         {
             int result = 0;
-            for(int index = 0; index < createContexts.Count; index++)
+            for (int index = 0; index < createContexts.Count; index++)
             {
                 CreateContext createContext = createContexts[index];
                 int length = createContext.Length;
