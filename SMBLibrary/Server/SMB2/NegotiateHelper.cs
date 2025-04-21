@@ -100,7 +100,7 @@ namespace SMBLibrary.Server.SMB2
             response.ServerGuid = serverGuid;
             if (state.Dialect != SMBDialect.SMB202 && transportType == SMBTransportType.DirectTCPTransport)
             {
-                response.Capabilities = Capabilities.LargeMTU;
+                response.Capabilities = Capabilities.LargeMTU | Capabilities.Leasing;
                 response.MaxTransactSize = ServerMaxTransactSizeLargeMTU;
                 response.MaxReadSize = ServerMaxReadSizeLargeMTU;
                 response.MaxWriteSize = ServerMaxWriteSizeLargeMTU;

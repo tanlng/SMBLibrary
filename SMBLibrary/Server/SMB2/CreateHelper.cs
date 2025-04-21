@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.NetworkInformation;
+using Newtonsoft.Json;
 using SMBLibrary.SMB2;
 using Utilities;
 
@@ -76,7 +77,10 @@ namespace SMBLibrary.Server.SMB2
                 //{
                 switch (request.RequestedOplockLevel)
                 {
+                    case OplockLevel.Batch:
+                        break;
                     case OplockLevel.Lease:
+                        response.OplockLevel = OplockLevel.Lease;
                         if (extraInfosKeys.Any(k => k == "RqLs"))
                         {
                             AddRlContext(request.CreateContexts.First(c => c.Name == "RqLs"), response);
