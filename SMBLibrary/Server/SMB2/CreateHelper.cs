@@ -74,9 +74,34 @@ namespace SMBLibrary.Server.SMB2
 
                 //if (handle is FileHandle fileHandle && !fileHandle.IsDirectory)
                 //{
-                if (extraInfosKeys.Any(k => k == "RqLs"))
+                switch (request.RequestedOplockLevel)
                 {
-                    AddRlContext(request.CreateContexts.First(c => c.Name == "RqLs"), response);
+                    case OplockLevel.Lease:
+                        if (extraInfosKeys.Any(k => k == "RqLs"))
+                        {
+                            AddRlContext(request.CreateContexts.First(c => c.Name == "RqLs"), response);
+                        }
+                        else
+                        {
+                            AddRlContext(new CreateContext()
+                            {
+                                Name = "RqLs",
+                                Data = new LeaseV2CreateContextData()
+                                {
+                                    LeaseKey = Guid.NewGuid(),
+                                    LeaseState = 0x00000007,
+                                    LeaseFlags = 0x00000000,
+                                    LeaseDuration = 0x0000000000000000,
+                                    ParentLeaseKey = Guid.Empty,
+                                    LeaseEpoch = 0x0001,
+                                    LeaseReserved = 0x0000
+                                }.ToBuffer(),
+                                Next = 0
+                            }, response);
+                        }
+                        break;
+                    default:
+                        break;
                 }
                 //}
 
@@ -193,6 +218,12 @@ namespace SMBLibrary.Server.SMB2
             response.CreateContexts.Add(mxAcContext);
         }
 
+
+        /// <summary>
+        ///  猜测这个和Oplock机制有关
+        /// </summary>
+        /// <param name="fileID"></param>
+        /// <param name="response"></param>
         public static void AddQFidContext(FileID fileID, CreateResponse response)
         {
             // 添加磁盘文件ID上下文（QFid）
@@ -209,7 +240,10 @@ namespace SMBLibrary.Server.SMB2
         public static void AddRlContext(CreateContext rlRequest, CreateResponse response)
         {
             var rqlsContext = LeaseV2CreateContextData.BufferToLeaseV2CreateContextData(rlRequest.Data);
-            rqlsContext.LeaseEpoch++;
+            if (rqlsContext.LeaseEpoch < 0x0001)
+            {
+                rqlsContext.LeaseEpoch = 0x0001;
+            }
             response.CreateContexts.Add(new CreateContext()
             {
                 Name = "RqLs",
