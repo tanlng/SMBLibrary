@@ -237,10 +237,11 @@ namespace SMBLibrary.Server
         private static void EnqueueResponseChain(ConnectionState state, List<SMB2Command> responseChain)
         {
 #if DEBUG
-            foreach (var item in responseChain)
-            {
-                state.LogToServer(Severity.Trace, $"Response  {item.GetType().Name} \r\n" + Utilities.JsonConvertHelper.Serialize(item));
-            }
+            // 打印日志会影响响应时间，一般不打
+            //foreach (var item in responseChain)
+            //{
+            //    state.LogToServer(Severity.Trace, $"Response  {item.GetType().Name} \r\n" + Utilities.JsonConvertHelper.Serialize(item));
+            //}
 #endif
             byte[] signingKey = null;
             if (state is SMB2ConnectionState)
