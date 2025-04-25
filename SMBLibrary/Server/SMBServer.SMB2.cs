@@ -20,10 +20,10 @@ namespace SMBLibrary.Server
         private void ProcessSMB2RequestChain(List<SMB2Command> requestChain, ref ConnectionState state)
         {
 #if DEBUG
-            foreach (var item in requestChain)
-            {
-                state.LogToServer(Severity.Trace, $"Request {item.GetType().Name} \r\n" + Utilities.JsonConvertHelper.Serialize(item));
-            }
+            //foreach (var item in requestChain)
+            //{
+            //    state.LogToServer(Severity.Trace, $"Request {item.GetType().Name} \r\n" + Utilities.JsonConvertHelper.Serialize(item));
+            //}
 #endif
             List<SMB2Command> responseChain = new List<SMB2Command>();
             FileID? fileID = null;
