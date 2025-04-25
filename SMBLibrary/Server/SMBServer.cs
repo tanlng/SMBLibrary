@@ -330,7 +330,10 @@ namespace SMBLibrary.Server
                 // Note: To be compatible with SMB2 specifications, we must accept SMB_COM_NEGOTIATE.
                 // We will disconnect the connection if m_enableSMB1 == false and the client does not support SMB2.
                 bool acceptSMB1 = (state.Dialect == SMBDialect.NotSet || state.Dialect == SMBDialect.NTLM012);
-                bool acceptSMB2 = (m_enableSMB2 && (state.Dialect == SMBDialect.NotSet || state.Dialect == SMBDialect.SMB202 || state.Dialect == SMBDialect.SMB210 || state.Dialect == SMBDialect.SMB300));
+                bool acceptSMB2 = (m_enableSMB2 &&
+                    (state.Dialect == SMBDialect.NotSet
+                    || state.Dialect == SMBDialect.SMB202 || state.Dialect == SMBDialect.SMB210
+                    || state.Dialect == SMBDialect.SMB300 || state.Dialect == SMBDialect.SMB311));
 
                 if (SMB1Header.IsValidSMB1Header(packet.Trailer))
                 {
