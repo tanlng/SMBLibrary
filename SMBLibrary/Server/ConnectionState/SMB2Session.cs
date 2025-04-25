@@ -145,10 +145,7 @@ namespace SMBLibrary.Server
                     fileID.Volatile = volatileFileID.Value;
                     // [MS-SMB2] FileId.Persistent MUST be set to Open.DurableFileId.
                     // Note: We don't support durable handles so we use volatileFileID.
-                    fileID.Persistent = CacheHelper.TryGet<ulong>($"fileID_{shareName}/{relativePath}", () =>
-                    {
-                        return volatileFileID.Value;
-                    }, 10);
+                    fileID.Persistent = volatileFileID.Value;
                     m_openFiles.Add(volatileFileID.Value, new OpenFileObject(treeID, shareName, relativePath, handle, fileAccess));
                     return fileID;
                 }
