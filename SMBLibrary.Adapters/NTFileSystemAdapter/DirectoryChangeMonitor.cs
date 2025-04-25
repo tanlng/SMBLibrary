@@ -129,7 +129,7 @@ namespace SMBLibrary.Adapters
         }
         private void OnDeleted(object sender, FileSystemEventArgs e)
         {
-            logger.Debug($"删除 {e.FullPath}");
+            logger.Debug($"临时文件删除 {e.FullPath}");
             OnCommonNotify(sender, e);
         }
         private void OnRenamed(object sender, RenamedEventArgs e)
