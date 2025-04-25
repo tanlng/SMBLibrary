@@ -76,22 +76,7 @@ namespace SMBLibrary.Server.SMB2
         internal static SMB2Command GetNegotiateResponse(NegotiateRequest request, GSSProvider securityProvider, ConnectionState state, SMBTransportType transportType, Guid serverGuid, DateTime serverStartTime, bool enableSMB3)
         {
             NegotiateResponse response = new NegotiateResponse();
-            if (enableSMB3 && request.Dialects.Contains(SMB2Dialect.SMB300))
-            {
-                state.Dialect = SMBDialect.SMB300;
-                response.DialectRevision = SMB2Dialect.SMB300;
-            }
-            else if (request.Dialects.Contains(SMB2Dialect.SMB210))
-            {
-                state.Dialect = SMBDialect.SMB210;
-                response.DialectRevision = SMB2Dialect.SMB210;
-            }
-            else if (request.Dialects.Contains(SMB2Dialect.SMB202))
-            {
-                state.Dialect = SMBDialect.SMB202;
-                response.DialectRevision = SMB2Dialect.SMB202;
-            }
-            else
+            if (!SetStateAndResponse(request, state, enableSMB3, response))
             {
                 state.LogToServer(Severity.Verbose, "Negotiate failure: None of the requested SMB2 dialects is supported");
                 return new ErrorResponse(request.CommandName, NTStatus.STATUS_NOT_SUPPORTED);
@@ -120,7 +105,55 @@ namespace SMBLibrary.Server.SMB2
             response.SystemTime = DateTime.Now;
             response.ServerStartTime = serverStartTime;
             response.SecurityBuffer = securityProvider.GetSPNEGOTokenInitBytes();
+
+            // 添加 SMB2_ENCRYPTION_CAPABILITIES 和 SMB2_PREAUTH_INTEGRITY_CAPABILITIES
+            if (response.DialectRevision == SMB2Dialect.SMB311)
+            {
+                //// 添加 SMB2_ENCRYPTION_CAPABILITIES（保持 CipherAlgorithm 术语）
+                EncryptionCapabilities encryptionCapabilities = new EncryptionCapabilities();
+                encryptionCapabilities.Ciphers.Add(CipherAlgorithm.Aes128Ccm); // 原始代码示例算法
+                response.NegotiateContextList.Add(encryptionCapabilities);
+
+                // 添加 SMB2_PREAUTH_INTEGRITY_CAPABILITIES
+                PreAuthIntegrityCapabilities preAuthIntegrityCapabilities = new PreAuthIntegrityCapabilities();
+                preAuthIntegrityCapabilities.HashAlgorithms.Add(HashAlgorithm.SHA512);
+                preAuthIntegrityCapabilities.Salt = new byte[32]; // 实际应用中需生成随机盐值
+                response.NegotiateContextList.Add(preAuthIntegrityCapabilities);
+            }
+
             return response;
+        }
+
+        private static bool SetStateAndResponse(NegotiateRequest request, ConnectionState state, bool enableSMB3, NegotiateResponse response)
+        {
+            if (enableSMB3)
+            {
+                if (request.Dialects.Contains(SMB2Dialect.SMB311))
+                {
+                    state.Dialect = SMBDialect.SMB311;
+                    response.DialectRevision = SMB2Dialect.SMB311;
+                    return true;
+                }
+                if (request.Dialects.Contains(SMB2Dialect.SMB300))
+                {
+                    state.Dialect = SMBDialect.SMB300;
+                    response.DialectRevision = SMB2Dialect.SMB300;
+                    return true;
+                }
+            }
+            else if (request.Dialects.Contains(SMB2Dialect.SMB210))
+            {
+                state.Dialect = SMBDialect.SMB210;
+                response.DialectRevision = SMB2Dialect.SMB210;
+                return true;
+            }
+            else if (request.Dialects.Contains(SMB2Dialect.SMB202))
+            {
+                state.Dialect = SMBDialect.SMB202;
+                response.DialectRevision = SMB2Dialect.SMB202;
+                return true;
+            }
+            return false;
         }
 
         internal static List<string> FindSMB2Dialects(SMBLibrary.SMB1.SMB1Message message)

@@ -58,8 +58,8 @@ namespace SMBLibrary.SMB2
         {
             get
             {
-                int paddingLength = (8 - (DataLength % 8)) % 8;
-                return this.Length + paddingLength;
+                // 8字节对齐
+                return (Length + 7) & ~7;
             }
         }
 
@@ -72,6 +72,10 @@ namespace SMBLibrary.SMB2
                     return new PreAuthIntegrityCapabilities(buffer, offset);
                 case NegotiateContextType.SMB2_ENCRYPTION_CAPABILITIES:
                     return new EncryptionCapabilities(buffer, offset);
+                case NegotiateContextType.SMB2_COMPRESSION_CAPABILITIES:
+                    return new CompressionCapabilities(buffer, offset);
+                case NegotiateContextType.SMB2_NETNAME_NEGOTIATE_CONTEXT_ID:
+                    return new NetnameNegotiateContext(buffer, offset);
                 default:
                     return new NegotiateContext(buffer, offset);
             }
