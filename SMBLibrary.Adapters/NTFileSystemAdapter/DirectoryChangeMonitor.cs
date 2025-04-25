@@ -44,6 +44,7 @@ namespace SMBLibrary.Adapters
 
             try
             {
+                logger.Debug($"监听目录{path} 是否包含子目录{watchSubtree} filter{filter}");
                 // 配置 FileSystemWatcher
                 _watcher.Path = path;
                 _watcher.IncludeSubdirectories = watchSubtree;
@@ -84,10 +85,10 @@ namespace SMBLibrary.Adapters
                 }
 
                 // 订阅事件
-                _watcher.Changed += OnDirectoryChanged;
-                _watcher.Created += OnDirectoryChanged;
-                _watcher.Deleted += OnDirectoryChanged;
-                _watcher.Renamed += OnDirectoryRenamed;
+                _watcher.Changed += OnChanged;
+                _watcher.Created += OnCreated;
+                _watcher.Deleted += OnDeleted;
+                _watcher.Renamed += OnRenamed;
 
                 // 启用监控
                 _watcher.EnableRaisingEvents = true;
@@ -108,15 +109,36 @@ namespace SMBLibrary.Adapters
             {
                 // 禁用监控并取消订阅事件
                 _watcher.EnableRaisingEvents = false;
-                _watcher.Changed -= OnDirectoryChanged;
-                _watcher.Created -= OnDirectoryChanged;
-                _watcher.Deleted -= OnDirectoryChanged;
-                _watcher.Renamed -= OnDirectoryRenamed;
+                _watcher.Changed -= OnChanged;
+                _watcher.Created -= OnCreated;
+                _watcher.Deleted -= OnDeleted;
+                _watcher.Renamed -= OnRenamed;
                 _resetEvent.Reset();
             }
         }
 
-        private void OnDirectoryChanged(object sender, FileSystemEventArgs e)
+        private void OnChanged(object sender, FileSystemEventArgs e)
+        {
+            logger.Debug($"改变 {e.FullPath}");
+            OnCommonNotify(sender, e);
+        }
+        private void OnCreated(object sender, FileSystemEventArgs e)
+        {
+            logger.Debug($"创建 {e.FullPath}");
+            OnCommonNotify(sender, e);
+        }
+        private void OnDeleted(object sender, FileSystemEventArgs e)
+        {
+            logger.Debug($"删除 {e.FullPath}");
+            OnCommonNotify(sender, e);
+        }
+        private void OnRenamed(object sender, RenamedEventArgs e)
+        {
+            logger.Debug($"改名 {e.FullPath}");
+            OnCommonNotify(sender, e);
+        }
+
+        private void OnCommonNotify(object sender, FileSystemEventArgs e)
         {
             if (_disposed) return;
 
@@ -147,16 +169,6 @@ namespace SMBLibrary.Adapters
             }
         }
 
-        private void OnDirectoryRenamed(object sender, RenamedEventArgs e)
-        {
-            if (_disposed) return;
-
-            // 处理重命名事件，这里可以根据需要扩展
-            uint action = 0x00000004; // 假设重命名的 Action 代码
-            string fileName = GetName(e.FullPath);
-            _buffer = CreateFileNotifyInformationBuffer(action, fileName);
-            _resetEvent.Set();
-        }
 
         private uint GetActionCode(WatcherChangeTypes changeType)
         {
@@ -168,6 +180,8 @@ namespace SMBLibrary.Adapters
                     return 0x00000002;
                 case WatcherChangeTypes.Changed:
                     return 0x00000003;
+                case WatcherChangeTypes.Renamed:
+                    return 0x00000004;
                 default:
                     return 0;
             }
@@ -175,7 +189,7 @@ namespace SMBLibrary.Adapters
 
         private byte[] CreateFileNotifyInformationBuffer(uint action, string fileName)
         {
-            logger.Trace($"CreateFileNotifyInformationBuffer: action={action}, fileName={fileName}");
+            logger.Debug($"CreateFileNotifyInformationBuffer: action={action}, fileName={fileName}");
             FILE_NOTIFY_INFORMATION info = new FILE_NOTIFY_INFORMATION
             {
                 NextEntryOffset = 0,
@@ -205,8 +219,17 @@ namespace SMBLibrary.Adapters
             {
                 if (disposing)
                 {
-                    // 释放托管资源
-                    _watcher?.Dispose();
+                    if (_watcher != null)
+                    {
+                        logger.Debug($"取消监听 {_watcher.Path}");
+                        // 释放托管资源
+                        _watcher?.Dispose();
+                    }
+                    else
+                    {
+
+                        logger.Debug($"取消监听, 没有watch");
+                    }
                     _resetEvent?.Dispose();
                 }
 
