@@ -17,7 +17,7 @@ namespace SMBLibrary.Adapters
         public string FileName;
     }
 
-    public class DirectoryChangeMonitor : IDisposable
+    public class FileChangeMonitor : IDisposable
     {
         static readonly NLog.Logger logger = NLog.LogManager.GetCurrentClassLogger();
         private FileSystemWatcher _watcher;
@@ -26,7 +26,7 @@ namespace SMBLibrary.Adapters
         private bool _disposed = false;
         private bool _isBlueberry;
 
-        public DirectoryChangeMonitor(bool isBlueberry)
+        public FileChangeMonitor(bool isBlueberry)
         {
             _isBlueberry = isBlueberry;
             _watcher = new FileSystemWatcher();
@@ -39,7 +39,7 @@ namespace SMBLibrary.Adapters
 
             if (_disposed)
             {
-                throw new ObjectDisposedException(nameof(DirectoryChangeMonitor));
+                throw new ObjectDisposedException(nameof(FileChangeMonitor));
             }
 
             try
@@ -241,7 +241,7 @@ namespace SMBLibrary.Adapters
 
         public void Dispose()
         {
-            DirectoryChangeMonitorManager.ReleaseMonitor(this);
+            FileChangeMonitorManager.ReleaseMonitor(this);
             GC.SuppressFinalize(this);
         }
     }
