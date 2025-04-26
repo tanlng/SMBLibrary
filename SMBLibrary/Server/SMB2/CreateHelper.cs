@@ -67,52 +67,52 @@ namespace SMBLibrary.Server.SMB2
             {
                 FileNetworkOpenInformation fileInfo = NTFileStoreHelper.GetNetworkOpenInformation(share.FileStore, handle);
                 CreateResponse response = CreateResponseFromFileSystemEntry(fileInfo, fileID.Value, fileStatus);
-                var extraInfosKeys = request.CreateContexts.Select(c => c.Name).ToArray();
-                if (extraInfosKeys.Any(k => k == "MxAc"))
-                {
-                    AddMxAcContext(response);
-                }
-
-                //if (handle is FileHandle fileHandle && !fileHandle.IsDirectory)
+                //var extraInfosKeys = request.CreateContexts.Select(c => c.Name).ToArray();
+                //if (extraInfosKeys.Any(k => k == "MxAc"))
                 //{
-                switch (request.RequestedOplockLevel)
-                {
-                    case OplockLevel.Batch:
-                        break;
-                    case OplockLevel.Lease:
-                        response.OplockLevel = OplockLevel.Lease;
-                        if (extraInfosKeys.Any(k => k == "RqLs"))
-                        {
-                            AddRlContext(request.CreateContexts.First(c => c.Name == "RqLs"), response);
-                        }
-                        else
-                        {
-                            AddRlContext(new CreateContext()
-                            {
-                                Name = "RqLs",
-                                Data = new LeaseV2CreateContextData()
-                                {
-                                    LeaseKey = Guid.NewGuid(),
-                                    LeaseState = 0x00000007,
-                                    LeaseFlags = 0x00000000,
-                                    LeaseDuration = 0x0000000000000000,
-                                    ParentLeaseKey = Guid.Empty,
-                                    LeaseEpoch = 0x0001,
-                                    LeaseReserved = 0x0000
-                                }.ToBuffer(),
-                                Next = 0
-                            }, response);
-                        }
-                        break;
-                    default:
-                        break;
-                }
+                //    AddMxAcContext(response);
                 //}
 
-                if (extraInfosKeys.Any(k => k == "QFid"))
-                {
-                    AddQFidContext(fileID.Value, response);
-                }
+                ////if (handle is FileHandle fileHandle && !fileHandle.IsDirectory)
+                ////{
+                //switch (request.RequestedOplockLevel)
+                //{
+                //    case OplockLevel.Batch:
+                //        break;
+                //    case OplockLevel.Lease:
+                //        response.OplockLevel = OplockLevel.Lease;
+                //        if (extraInfosKeys.Any(k => k == "RqLs"))
+                //        {
+                //            AddRlContext(request.CreateContexts.First(c => c.Name == "RqLs"), response);
+                //        }
+                //        else
+                //        {
+                //            AddRlContext(new CreateContext()
+                //            {
+                //                Name = "RqLs",
+                //                Data = new LeaseV2CreateContextData()
+                //                {
+                //                    LeaseKey = Guid.NewGuid(),
+                //                    LeaseState = 0x00000007,
+                //                    LeaseFlags = 0x00000000,
+                //                    LeaseDuration = 0x0000000000000000,
+                //                    ParentLeaseKey = Guid.Empty,
+                //                    LeaseEpoch = 0x0001,
+                //                    LeaseReserved = 0x0000
+                //                }.ToBuffer(),
+                //                Next = 0
+                //            }, response);
+                //        }
+                //        break;
+                //    default:
+                //        break;
+                //}
+                ////}
+
+                //if (extraInfosKeys.Any(k => k == "QFid"))
+                //{
+                //    AddQFidContext(fileID.Value, response);
+                //}
                 return response;
             }
         }
