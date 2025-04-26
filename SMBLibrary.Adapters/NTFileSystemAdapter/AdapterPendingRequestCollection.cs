@@ -20,7 +20,7 @@ namespace SMBLibrary.Win32
         public FileHandle FileHandle;
         public uint ThreadID;
         public bool Cleanup;
-        public DirectoryChangeMonitor monitor { get; set; }
+        public FileChangeMonitor monitor { get; set; }
         public CancellationTokenSource CancellationTokenSource { get; set; }
     }
     public class AdapterPendingRequestCollection

@@ -2,9 +2,9 @@
 
 namespace SMBLibrary.Adapters
 {
-    public static class DirectoryChangeMonitorManager
+    public static class FileChangeMonitorManager
     {
-        private static List<DirectoryChangeMonitor> _monitors = new List<DirectoryChangeMonitor>();
+        private static List<FileChangeMonitor> _monitors = new List<FileChangeMonitor>();
 
         // 获取当前活动的监听数量
         public static int MonitorCount
@@ -13,15 +13,15 @@ namespace SMBLibrary.Adapters
         }
 
         // 创建一个新的 DirectoryChangeMonitor 实例并开始监听
-        public static DirectoryChangeMonitor CreateMonitor(bool isBlueberry)
+        public static FileChangeMonitor CreateMonitor(bool isBlueberry)
         {
-            DirectoryChangeMonitor monitor = new DirectoryChangeMonitor(isBlueberry);
+            FileChangeMonitor monitor = new FileChangeMonitor(isBlueberry);
             _monitors.Add(monitor);
             return monitor;
         }
 
         // 释放指定的 DirectoryChangeMonitor 实例
-        public static void ReleaseMonitor(DirectoryChangeMonitor monitor)
+        public static void ReleaseMonitor(FileChangeMonitor monitor)
         {
             if (monitor != null)
             {
