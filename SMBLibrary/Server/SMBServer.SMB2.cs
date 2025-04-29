@@ -119,7 +119,21 @@ namespace SMBLibrary.Server
             }
             else
             {
-                return ProcessSMB2Command(command, (SMB2ConnectionState)state);
+                // 使用高精度计时器记录命令处理的开始时间
+                System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
+                
+                // 处理命令
+                SMB2Command result = ProcessSMB2Command(command, (SMB2ConnectionState)state);
+                
+                // 停止计时器并记录处理时间
+                stopwatch.Stop();
+                //state.LogToServer(Severity.Information, "[性能统计] 处理 {0} 命令耗时: {1} 微秒", 
+                //    command.CommandName, stopwatch.ElapsedTicks * 1000000.0 / System.Diagnostics.Stopwatch.Frequency);
+                // 同时以毫秒为单位记录处理时间
+                double milliseconds = stopwatch.ElapsedMilliseconds;
+                state.LogToServer(Severity.Information, "[性能统计] 处理 {0} 命令耗时: {1} 毫秒", command.CommandName, milliseconds);
+                return result;
+                //return ProcessSMB2Command(command, (SMB2ConnectionState)state);
             }
         }
 
