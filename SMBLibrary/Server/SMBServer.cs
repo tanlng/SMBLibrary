@@ -457,16 +457,16 @@ namespace SMBLibrary.Server
                 try
                 {
                     // 开始测量发送耗时
-                    Stopwatch sendStopwatch = Stopwatch.StartNew();
+                    //Stopwatch sendStopwatch = Stopwatch.StartNew();
                     byte[] responseBytes = response.GetBytes();
                     clientSocket.Send(responseBytes);
-                    sendStopwatch.Stop();
-                    // 计算发送速度（单位：字节/秒）
-                    double sendSpeed = (double)responseBytes.Length / 1024 / 1024 / (sendStopwatch.Elapsed.TotalSeconds);
-                    if (responseBytes.Length > 1024)
-                    {
-                        PrintWithInterval(state, $"send {response.Type} {responseBytes.Length}/{sendStopwatch.Elapsed.TotalSeconds} 速度: {sendSpeed:F2} MB/秒 | 队列剩余{state.SendQueue.Count} | activeConnections 数量 {m_connectionManager.ActiveConnectionsCount}");
-                    }
+                    //sendStopwatch.Stop();
+                    //if (responseBytes.Length > 1024)
+                    //{
+                        // 计算发送速度（单位：字节/秒）
+                        //double sendSpeed = (double)responseBytes.Length / 1024 / 1024 / (sendStopwatch.Elapsed.TotalSeconds);
+                    //    PrintWithInterval(state, $"send {response.Type} {responseBytes.Length}/{sendStopwatch.Elapsed.TotalSeconds} 速度: {sendSpeed:F2} MB/秒 | 队列剩余{state.SendQueue.Count} | activeConnections 数量 {m_connectionManager.ActiveConnectionsCount}");
+                    //}
                 }
                 catch (SocketException ex)
                 {
