@@ -444,7 +444,7 @@ namespace SMBLibrary.Server
         }
         private void ProcessSendQueue(ConnectionState state)
         {
-            state.LogToServer(Severity.Trace, "Entering ProcessSendQueue");
+            //state.LogToServer(Severity.Trace, "Entering ProcessSendQueue");
             while (true)
             {
                 SessionPacket response;
