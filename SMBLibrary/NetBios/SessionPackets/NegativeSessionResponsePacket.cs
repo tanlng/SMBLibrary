@@ -27,12 +27,12 @@ namespace SMBLibrary.NetBios
             ErrorCode = ByteReader.ReadByte(this.Trailer, offset + 0);
         }
 
-        public override byte[] GetBytes()
+        public override byte[] GetPoolBytes()
         {
             this.Trailer = new byte[1];
             this.Trailer[0] = ErrorCode;
 
-            return base.GetBytes();
+            return base.GetPoolBytes();
         }
 
         public override int Length
