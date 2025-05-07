@@ -24,10 +24,10 @@ namespace SMBLibrary.NetBios
         {
         }
 
-        public override byte[] GetBytes()
+        public override byte[] GetPoolBytes()
         {
             this.Trailer = new byte[0];
-            return base.GetBytes();
+            return base.GetPoolBytes();
         }
 
         public override int Length

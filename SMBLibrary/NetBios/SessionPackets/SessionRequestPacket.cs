@@ -29,14 +29,14 @@ namespace SMBLibrary.NetBios
             CallingName = NetBiosUtils.DecodeName(this.Trailer, ref offset);
         }
 
-        public override byte[] GetBytes()
+        public override byte[] GetPoolBytes()
         {
             byte[] part1 = NetBiosUtils.EncodeName(CalledName, String.Empty);
             byte[] part2 = NetBiosUtils.EncodeName(CallingName, String.Empty);
             this.Trailer = new byte[part1.Length + part2.Length];
             ByteWriter.WriteBytes(this.Trailer, 0, part1);
             ByteWriter.WriteBytes(this.Trailer, part1.Length, part2);
-            return base.GetBytes();
+            return base.GetPoolBytes();
         }
 
         public override int Length

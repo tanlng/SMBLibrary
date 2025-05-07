@@ -29,6 +29,8 @@ namespace SMBLibrary.Server
         public SMBDialect Dialect;
         public GSSContext AuthenticationContext;
 
+        public SocketAsyncEventArgs SendEventArgs { get; set; }
+
         public ConnectionState(Socket clientSocket, IPEndPoint clientEndPoint, LogDelegate logToServerHandler)
         {
             m_clientSocket = clientSocket;
@@ -166,5 +168,7 @@ namespace SMBLibrary.Server
                 return String.Empty;
             }
         }
+
+        public int SendAttempts { get; internal set; }
     }
 }

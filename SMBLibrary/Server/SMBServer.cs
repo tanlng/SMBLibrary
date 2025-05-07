@@ -460,13 +460,20 @@ namespace SMBLibrary.Server
                 {
                     // 开始测量发送耗时
                     //Stopwatch sendStopwatch = Stopwatch.StartNew();
-                    byte[] responseBytes = response.GetBytes();
-                    clientSocket.Send(responseBytes);
+                    byte[] responseBytes = response.GetPoolBytes();
+                    try
+                    {
+                        clientSocket.Send(responseBytes, 0, response.ActualByteLength, SocketFlags.None);
+                    }
+                    finally
+                    {
+                        response.ReturnBuffer(responseBytes); // 必须归还内存池
+                    }
                     //sendStopwatch.Stop();
                     //if (responseBytes.Length > 1024)
                     //{
-                        // 计算发送速度（单位：字节/秒）
-                        //double sendSpeed = (double)responseBytes.Length / 1024 / 1024 / (sendStopwatch.Elapsed.TotalSeconds);
+                    // 计算发送速度（单位：字节/秒）
+                    //double sendSpeed = (double)responseBytes.Length / 1024 / 1024 / (sendStopwatch.Elapsed.TotalSeconds);
                     //    PrintWithInterval(state, $"send {response.Type} {responseBytes.Length}/{sendStopwatch.Elapsed.TotalSeconds} 速度: {sendSpeed:F2} MB/秒 | 队列剩余{state.SendQueue.Count} | activeConnections 数量 {m_connectionManager.ActiveConnectionsCount}");
                     //}
                 }
@@ -484,6 +491,7 @@ namespace SMBLibrary.Server
                     m_connectionManager.ReleaseConnection(state.ClientEndPoint);
                     return;
                 }
+
                 state.UpdateLastSendDT();
             }
         }

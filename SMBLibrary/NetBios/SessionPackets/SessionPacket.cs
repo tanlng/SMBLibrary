@@ -4,7 +4,9 @@
  * the GNU Lesser Public License as published by the Free Software Foundation,
  * either version 3 of the License, or (at your option) any later version.
  */
+using Newtonsoft.Json.Linq;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using Utilities;
@@ -23,10 +25,10 @@ namespace SMBLibrary.NetBios
         public const int HeaderLength = 4;
         public const int MaxSessionPacketLength = 131075;
         public const int MaxDirectTcpPacketLength = 16777215;
-
         public SessionPacketTypeName Type;
         private int TrailerLength; // Session packet: 17 bits, Direct TCP transport packet: 3 bytes
         public byte[] Trailer;
+        public static readonly ArrayPool<byte> s_bufferPool = ArrayPool<byte>.Shared;
 
         public SessionPacket()
         {
@@ -39,21 +41,57 @@ namespace SMBLibrary.NetBios
             Trailer = ByteReader.ReadBytes(buffer, offset + 4, TrailerLength);
         }
 
-        public virtual byte[] GetBytes()
+        bool isPool = false;
+        public int ActualByteLength => HeaderLength + Trailer.Length;
+        public byte[] GetBytes()
         {
+            byte[] rawBuffer = this.GetPoolBytes();
+            byte[] exactBuffer = new byte[ActualByteLength];
+            Buffer.BlockCopy(rawBuffer, 0, exactBuffer, 0, ActualByteLength);
+            return exactBuffer;
+        }
+        public virtual byte[] GetPoolBytes()
+        {
+            isPool = true;
             TrailerLength = this.Trailer.Length;
 
             byte flags = Convert.ToByte(TrailerLength >> 16);
 
-            byte[] buffer = new byte[HeaderLength + Trailer.Length];
-            ByteWriter.WriteByte(buffer, 0, (byte)Type);
-            ByteWriter.WriteByte(buffer, 1, flags);
-            BigEndianWriter.WriteUInt16(buffer, 2, (ushort)(TrailerLength & 0xFFFF));
-            ByteWriter.WriteBytes(buffer, 4, Trailer);
+            // 从内存池租用缓冲区（核心修改）
+            //byte[] buffer = new byte[HeaderLength + Trailer.Length];
+            byte[] buffer = s_bufferPool.Rent(ActualByteLength);
+
+            try
+            {
+                Span<byte> span = buffer.AsSpan(0, HeaderLength + Trailer.Length);
+                span[0] = (byte)Type;
+                span[1] = flags;
+                BigEndianConverter.GetBytes((ushort)(TrailerLength & 0xFFFF)).AsSpan().CopyTo(span.Slice(2));
+                Trailer.AsSpan().CopyTo(span.Slice(HeaderLength));
+
+                //ByteWriter.WriteByte(buffer, 0, (byte)Type);
+                //ByteWriter.WriteByte(buffer, 1, flags);
+                //BigEndianWriter.WriteUInt16(buffer, 2, (ushort)(TrailerLength & 0xFFFF));
+                //ByteWriter.WriteBytes(buffer, 4, Trailer);
+            }
+            catch
+            {
+                s_bufferPool.Return(buffer); // 发生异常立即归还
+                throw;
+            }
 
             return buffer;
         }
 
+        public virtual bool ReturnBuffer(byte[] buffer)
+        {
+            if (!isPool)
+            {
+                return false;
+            }
+            s_bufferPool.Return(buffer);
+            return true;
+        }
         public virtual int Length
         {
             get
