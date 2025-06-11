@@ -14,7 +14,7 @@ namespace SMBLibrary
 {
     public class FileHandle
     {
-        private static int num = 0;
+        private static long _count = 0;
         public string Path;
         public bool IsDirectory;
         public Stream Stream;
@@ -27,8 +27,12 @@ namespace SMBLibrary
             IsDirectory = isDirectory;
             Stream = stream;
             DeleteOnClose = deleteOnClose;
-            Interlocked.Increment(ref num);
-            GUID = "[" + num + "]" + Guid.NewGuid().ToString("N");
+            long newValue = Interlocked.Increment(ref _count);
+            if (newValue > long.MaxValue)
+            {
+                Interlocked.Exchange(ref _count, 0);
+            }
+            GUID = "[" + newValue + "]" + Guid.NewGuid().ToString("N");
         }
     }
 }
