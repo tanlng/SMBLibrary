@@ -8,11 +8,13 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Threading;
 
 namespace SMBLibrary
 {
     public class FileHandle
     {
+        private static int num = 0;
         public string Path;
         public bool IsDirectory;
         public Stream Stream;
@@ -25,7 +27,8 @@ namespace SMBLibrary
             IsDirectory = isDirectory;
             Stream = stream;
             DeleteOnClose = deleteOnClose;
-            GUID = Guid.NewGuid().ToString("N");
+            Interlocked.Increment(ref num);
+            GUID = "[" + num + "]" + Guid.NewGuid().ToString("N");
         }
     }
 }
