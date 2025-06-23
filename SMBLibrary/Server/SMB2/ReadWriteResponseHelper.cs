@@ -63,7 +63,6 @@ namespace SMBLibrary.Server.SMB2
                     return new ErrorResponse(request.CommandName, NTStatus.STATUS_ACCESS_DENIED);
                 }
             }
-
             int numberOfBytesWritten;
             NTStatus writeStatus = share.FileStore.WriteFile(out numberOfBytesWritten, openFile.Handle, (long)request.Offset, request.Data);
             if (writeStatus != NTStatus.STATUS_SUCCESS)
