@@ -32,12 +32,12 @@ namespace SMBLibrary.Server
             {
                 //if (request is NegotiateRequest)
                 //{
-                    List<SMB2Command> responseChain = [];
-                    ProcessResponse(ref state, responseChain, ref fileID, ref fileIDStatus, request);
-                    if (responseChain.Count > 0)
-                    {
-                        EnqueueResponseChain(state, responseChain);
-                    }
+                List<SMB2Command> responseChain = [];
+                ProcessResponse(ref state, responseChain, ref fileID, ref fileIDStatus, request);
+                if (responseChain.Count > 0)
+                {
+                    EnqueueResponseChain(state, responseChain);
+                }
                 //}
                 //else
                 //{

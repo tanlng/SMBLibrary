@@ -49,6 +49,7 @@ namespace SMBLibrary.Server.SMB2
         {
             SMB2Session session = state.GetSession(request.Header.SessionID);
             OpenFileObject openFile = session.GetOpenFileObject(request.FileId);
+
             if (openFile == null)
             {
                 state.LogToServer(Severity.Verbose, "Write failed. Invalid FileId. (SessionID: {0}, TreeID: {1}, FileId: {2})", request.Header.SessionID, request.Header.TreeID, request.FileId.Volatile);
