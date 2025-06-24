@@ -16,7 +16,7 @@ namespace SMBLibrary.Server
     internal class SMB2ConnectionState : ConnectionState
     {
         // Key is SessionID
-        private ConcurrentDictionary<ulong, SMB2Session> m_sessions = new ConcurrentDictionary<ulong, SMB2Session>();
+        private Dictionary<ulong, SMB2Session> m_sessions = new Dictionary<ulong, SMB2Session>();
         private ulong m_nextSessionID = 1;
         // Key is AsyncID
         private Dictionary<ulong, SMB2AsyncContext> m_pendingRequests = new Dictionary<ulong, SMB2AsyncContext>();
@@ -47,63 +47,79 @@ namespace SMBLibrary.Server
         public SMB2Session CreateSession(ulong sessionID, string userName, string machineName, byte[] sessionKey, object accessToken, bool signingRequired, byte[] signingKey)
         {
             SMB2Session session = new SMB2Session(this, sessionID, userName, machineName, sessionKey, accessToken, signingRequired, signingKey);
-            //lock (m_sessions)
-            //{
+            lock (m_sessions)
+            {
                 m_sessions.TryAdd(sessionID, session);
-            //}
+            }
+            if (sessionID == lastSessionId)
+            {
+                lastSession = session;
+            }
             return session;
         }
-
+        private ulong lastSessionId = 0;
+        private SMB2Session lastSession = null;
         public SMB2Session GetSession(ulong sessionID)
         {
+            if (lastSessionId == sessionID && lastSession != null)
+            {
+                return lastSession;
+            }
             SMB2Session session;
-            //lock (m_sessions)
-            //{
+            lock (m_sessions)
+            {
                 m_sessions.TryGetValue(sessionID, out session);
-            //}
+            }
+            lastSessionId = sessionID;
+            lastSession = session;
             return session;
         }
 
         public void RemoveSession(ulong sessionID)
         {
             SMB2Session session;
-            //lock (m_sessions)
-            //{
+            lock (m_sessions)
+            {
                 m_sessions.TryGetValue(sessionID, out session);
-            //}
+            }
             if (session != null)
             {
                 session.Close();
-                //lock (m_sessions)
-                //{
-                    m_sessions.TryRemove(sessionID, out _);
-                //}
+                lock (m_sessions)
+                {
+                    m_sessions.Remove(sessionID, out _);
+                }
+                if (sessionID == lastSessionId)
+                {
+                    lastSessionId = 0;
+                    lastSession = null;
+                }
             }
         }
 
         public override void CloseSessions()
         {
-            //lock (m_sessions)
-            //{
+            lock (m_sessions)
+            {
                 foreach (SMB2Session session in m_sessions.Values)
                 {
                     session.Close();
                 }
 
                 m_sessions.Clear();
-            //}
+            }
         }
 
         public override List<SessionInformation> GetSessionsInformation()
         {
             List<SessionInformation> result = new List<SessionInformation>();
-            //lock (m_sessions)
-            //{
+            lock (m_sessions)
+            {
                 foreach (SMB2Session session in m_sessions.Values)
                 {
                     result.Add(new SessionInformation(this.ClientEndPoint, this.Dialect, session.UserName, session.MachineName, session.GetOpenFilesInformation(), session.CreationDT));
                 }
-            //}
+            }
             return result;
         }
 
