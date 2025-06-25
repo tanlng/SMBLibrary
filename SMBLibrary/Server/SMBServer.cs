@@ -221,8 +221,8 @@ namespace SMBLibrary.Server
                     //clientSocket.BeginReceive(state.ReceiveBuffer.Buffer, state.ReceiveBuffer.WriteOffset, state.ReceiveBuffer.AvailableLength, 0, ReceiveCallback, state);
 
                     //TAPReceiveMsg receiveMsg = new TAPReceiveMsg(this);
-                    //IOCPReceiveMsg receiveMsg = new IOCPReceiveMsg(this);
-                    APMReceiveMsg receiveMsg = new APMReceiveMsg(this);
+                    IOCPReceiveMsg receiveMsg = new IOCPReceiveMsg(this);
+                    //APMReceiveMsg receiveMsg = new APMReceiveMsg(this);
                     receiveMsg.InitAndStartReceive(state);
                 }
                 catch (ObjectDisposedException)
