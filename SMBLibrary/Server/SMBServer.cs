@@ -16,6 +16,7 @@ using System.Xml.Serialization;
 using SMBLibrary.Authentication.GSSAPI;
 using SMBLibrary.NetBios;
 using SMBLibrary.RPC;
+using SMBLibrary.Server.RecieveMsg;
 using SMBLibrary.SMB1;
 using SMBLibrary.SMB2;
 using Utilities;
@@ -35,7 +36,7 @@ namespace SMBLibrary.Server
         private NamedPipeShare m_services; // Named pipes
         private Guid m_serverGuid;
 
-        private ConnectionManager m_connectionManager;
+        internal ConnectionManager m_connectionManager;
         private Thread m_sendSMBKeepAliveThread;
 #if !NET20
         private CancellationTokenSource m_sendSMBKeepAliveCancellationTokenSource;
@@ -47,7 +48,7 @@ namespace SMBLibrary.Server
         private bool m_enableSMB2;
         private bool m_enableSMB3;
         private Socket m_listenerSocket;
-        private bool m_listening;
+        internal bool m_listening;
         private DateTime m_serverStartTime;
 
         public event EventHandler<ConnectionRequestEventArgs> ConnectionRequested;
@@ -156,7 +157,7 @@ namespace SMBLibrary.Server
         }
 
         // This method accepts new connections
-        private void ConnectRequestCallback(IAsyncResult ar)
+        private async void ConnectRequestCallback(IAsyncResult ar)
         {
             Socket listenerSocket = (Socket)ar.AsyncState;
 
@@ -187,6 +188,7 @@ namespace SMBLibrary.Server
             SocketUtils.SetKeepAlive(clientSocket, TimeSpan.FromMinutes(2));
             // Disable the Nagle Algorithm for this tcp socket:
             clientSocket.NoDelay = true;
+            clientSocket.Blocking = false; // 切换到非阻塞模式
 
             clientSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.SendBuffer, 64 * 1024);
             clientSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReceiveBuffer, 64 * 1024);
@@ -217,7 +219,11 @@ namespace SMBLibrary.Server
                 {
                     // Direct TCP transport packet is actually an NBT Session Message Packet,
                     // So in either case (NetBios over TCP or Direct TCP Transport) we will receive an NBT packet.
-                    clientSocket.BeginReceive(state.ReceiveBuffer.Buffer, state.ReceiveBuffer.WriteOffset, state.ReceiveBuffer.AvailableLength, 0, ReceiveCallback, state);
+                    //clientSocket.BeginReceive(state.ReceiveBuffer.Buffer, state.ReceiveBuffer.WriteOffset, state.ReceiveBuffer.AvailableLength, 0, ReceiveCallback, state);
+
+                    //TAPReceiveMsg receiveMsg = new TAPReceiveMsg(this);
+                    IOCPReceiveMsg receiveMsg = new IOCPReceiveMsg(this);
+                    receiveMsg.InitAndStartReceive(state);
                 }
                 catch (ObjectDisposedException)
                 {
@@ -235,77 +241,7 @@ namespace SMBLibrary.Server
             listenerSocket.BeginAccept(ConnectRequestCallback, listenerSocket);
         }
 
-        private void ReceiveCallback(IAsyncResult result)
-        {
-            ConnectionState state = (ConnectionState)result.AsyncState;
-            Socket clientSocket = state.ClientSocket;
-
-            if (!m_listening)
-            {
-                clientSocket.Close();
-                return;
-            }
-
-            int numberOfBytesReceived;
-            try
-            {
-                numberOfBytesReceived = clientSocket.EndReceive(result);
-            }
-            catch (ObjectDisposedException)
-            {
-                state.LogToServer(Severity.Debug, "The connection was terminated");
-                m_connectionManager.ReleaseConnection(state);
-                return;
-            }
-            catch (SocketException ex)
-            {
-                const int WSAECONNRESET = 10054;
-                if (ex.ErrorCode == WSAECONNRESET)
-                {
-                    state.LogToServer(Severity.Debug, "The connection was forcibly closed by the remote host");
-                }
-                else
-                {
-                    state.LogToServer(Severity.Debug, "The connection was terminated, Socket error code: {0}", ex.ErrorCode);
-                }
-                m_connectionManager.ReleaseConnection(state);
-                return;
-            }
-
-            if (numberOfBytesReceived == 0)
-            {
-                state.LogToServer(Severity.Debug, "The client closed the connection");
-                m_connectionManager.ReleaseConnection(state);
-                return;
-            }
-
-            state.UpdateLastReceiveDT();
-
-            lock (state.ReceiveBuffer)
-            {
-                NBTConnectionReceiveBuffer receiveBuffer = state.ReceiveBuffer;
-                receiveBuffer.SetNumberOfBytesReceived(numberOfBytesReceived);
-                ProcessConnectionBuffer(ref state);
-
-                if (clientSocket.Connected)
-                {
-                    try
-                    {
-                        clientSocket.BeginReceive(state.ReceiveBuffer.Buffer, state.ReceiveBuffer.WriteOffset, state.ReceiveBuffer.AvailableLength, 0, ReceiveCallback, state);
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                        m_connectionManager.ReleaseConnection(state);
-                    }
-                    catch (SocketException)
-                    {
-                        m_connectionManager.ReleaseConnection(state);
-                    }
-                }
-            }
-        }
-
-        private void ProcessConnectionBuffer(ref ConnectionState state)
+        internal void ProcessConnectionBuffer(ref ConnectionState state)
         {
             NBTConnectionReceiveBuffer receiveBuffer = state.ReceiveBuffer;
             while (receiveBuffer.HasCompletePacket())
