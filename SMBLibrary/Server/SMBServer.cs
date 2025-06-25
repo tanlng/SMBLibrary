@@ -220,8 +220,8 @@ namespace SMBLibrary.Server
                     // So in either case (NetBios over TCP or Direct TCP Transport) we will receive an NBT packet.
                     //clientSocket.BeginReceive(state.ReceiveBuffer.Buffer, state.ReceiveBuffer.WriteOffset, state.ReceiveBuffer.AvailableLength, 0, ReceiveCallback, state);
 
-                    //TAPReceiveMsg receiveMsg = new TAPReceiveMsg(this);
-                    IOCPReceiveMsg receiveMsg = new IOCPReceiveMsg(this);
+                    TAPReceiveMsg receiveMsg = new TAPReceiveMsg(this);
+                    //IOCPReceiveMsg receiveMsg = new IOCPReceiveMsg(this);
                     receiveMsg.InitAndStartReceive(state);
                 }
                 catch (ObjectDisposedException)
