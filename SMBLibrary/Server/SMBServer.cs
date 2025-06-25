@@ -12,6 +12,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Xml.Serialization;
 using SMBLibrary.Authentication.GSSAPI;
 using SMBLibrary.NetBios;
@@ -208,12 +209,10 @@ namespace SMBLibrary.Server
             {
                 ConnectionState state = new ConnectionState(clientSocket, clientEndPoint, Log);
                 state.LogToServer(Severity.Verbose, "New connection request accepted");
-                Thread senderThread = new Thread(delegate ()
-                {
-                    ProcessSendQueue(state);
-                });
-                senderThread.IsBackground = true;
-                senderThread.Start();
+
+                var cts = new CancellationTokenSource();
+                state.SendCancelToken = cts;
+                ProcessSendQueue(state);
 
                 try
                 {
@@ -254,8 +253,7 @@ namespace SMBLibrary.Server
                 }
                 catch (Exception ex)
                 {
-                    state.ClientSocket.Close();
-                    state.ReceiveBuffer.Dispose();
+                    Shutdown(state);
                     state.LogToServer(Severity.Warning, "Rejected Invalid NetBIOS session packet: {0}", ex.Message);
                     break;
                 }
@@ -282,8 +280,7 @@ namespace SMBLibrary.Server
                     if (!acceptSMB1)
                     {
                         state.LogToServer(Severity.Verbose, "Rejected SMB1 message");
-                        state.ClientSocket.Close();
-                        state.ReceiveBuffer.Dispose();
+                        Shutdown(state);
                         return;
                     }
 
@@ -295,8 +292,7 @@ namespace SMBLibrary.Server
                     catch (Exception ex)
                     {
                         state.LogToServer(Severity.Warning, "Invalid SMB1 message: " + ex.Message);
-                        state.ClientSocket.Close();
-                        state.ReceiveBuffer.Dispose();
+                        Shutdown(state);
                         return;
                     }
                     state.LogToServer(Severity.Verbose, "SMB1 message received: {0} requests, First request: {1}, Packet length: {2}", message.Commands.Count, message.Commands[0].CommandName.ToString(), packet.Length);
@@ -334,8 +330,7 @@ namespace SMBLibrary.Server
                     if (!acceptSMB2)
                     {
                         state.LogToServer(Severity.Verbose, "Rejected SMB2 message");
-                        state.ClientSocket.Close();
-                        state.ReceiveBuffer.Dispose();
+                        Shutdown(state);
                         return;
                     }
 
@@ -347,8 +342,7 @@ namespace SMBLibrary.Server
                     catch (Exception ex)
                     {
                         state.LogToServer(Severity.Warning, "Invalid SMB2 request chain: " + ex.Message);
-                        state.ClientSocket.Close();
-                        state.ReceiveBuffer.Dispose();
+                        Shutdown(state);
                         return;
                     }
                     state.LogToServer(Severity.Verbose, "SMB2 request chain received: {0} requests, First request: {1}, Packet length: {2}", requestChain.Count, requestChain[0].CommandName.ToString(), packet.Length);
@@ -363,7 +357,7 @@ namespace SMBLibrary.Server
             else if (packet is SessionRequestPacket && m_transport == SMBTransportType.NetBiosOverTCP)
             {
                 PositiveSessionResponsePacket response = new PositiveSessionResponsePacket();
-                state.SendQueue.Enqueue(response);
+                state.Send(response);
             }
             else if (packet is SessionKeepAlivePacket && m_transport == SMBTransportType.NetBiosOverTCP)
             {
@@ -372,13 +366,27 @@ namespace SMBLibrary.Server
             else
             {
                 state.LogToServer(Severity.Warning, "Inappropriate NetBIOS session packet");
-                state.ClientSocket.Close();
-                state.ReceiveBuffer.Dispose();
+                Shutdown(state);
                 return;
             }
         }
         static DateTime lastPrintTime = DateTime.MinValue;
         static readonly TimeSpan printInterval = TimeSpan.FromSeconds(2);
+        void Shutdown(ConnectionState state)
+        {
+            state.SendCancelToken?.Cancel();
+            try
+            {
+                state.ClientSocket?.Shutdown(SocketShutdown.Both);
+                state.ClientSocket?.Close();
+                state.ReceiveBuffer?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                /* 忽略关闭过程中的错误 */
+                state.LogToServer(Severity.Warning, $"Shutdown {ex.Message}");
+            }
+        }
         static void PrintWithInterval(ConnectionState state, string message)
         {
             if (DateTime.Now - lastPrintTime >= printInterval)
@@ -387,55 +395,61 @@ namespace SMBLibrary.Server
                 lastPrintTime = DateTime.Now;
             }
         }
-        private void ProcessSendQueue(ConnectionState state)
+        private async Task ProcessSendQueue(ConnectionState state)
         {
             //state.LogToServer(Severity.Trace, "Entering ProcessSendQueue");
-            while (true)
+            while (!state.SendCancelToken.IsCancellationRequested)
             {
+                await state.SendSemaphore.WaitAsync(state.SendCancelToken.Token); // 等待发送信号
+
                 SessionPacket response;
-                bool stopped = !state.SendQueue.TryDequeue(out response);
-                if (stopped)
+                while (state.SendQueue.TryDequeue(out response))
                 {
-                    return;
-                }
-                Socket clientSocket = state.ClientSocket;
-                try
-                {
-                    // 开始测量发送耗时
-                    //Stopwatch sendStopwatch = Stopwatch.StartNew();
-                    byte[] responseBytes = response.GetPoolBytes();
+                    Socket clientSocket = state.ClientSocket;
                     try
                     {
-                        clientSocket.Send(responseBytes, 0, response.ActualByteLength, SocketFlags.None);
+                        // 开始测量发送耗时
+                        //Stopwatch sendStopwatch = Stopwatch.StartNew();
+                        byte[] responseBytes = response.GetPoolBytes();
+                        try
+                        {
+                            int bytesSent = 0;
+                            do
+                            {
+                                bytesSent += await clientSocket.SendAsync(
+                                   new ArraySegment<byte>(responseBytes, bytesSent, response.ActualByteLength - bytesSent),
+                                   SocketFlags.None);
+                            } while (bytesSent < response.ActualByteLength);
+                        }
+                        finally
+                        {
+                            response.ReturnBuffer(responseBytes); // 必须归还内存池
+                        }
+                        //sendStopwatch.Stop();
+                        //if (responseBytes.Length > 1024)
+                        //{
+                        // 计算发送速度（单位：字节/秒）
+                        //double sendSpeed = (double)responseBytes.Length / 1024 / 1024 / (sendStopwatch.Elapsed.TotalSeconds);
+                        //    PrintWithInterval(state, $"send {response.Type} {responseBytes.Length}/{sendStopwatch.Elapsed.TotalSeconds} 速度: {sendSpeed:F2} MB/秒 | 队列剩余{state.SendQueue.Count} | activeConnections 数量 {m_connectionManager.ActiveConnectionsCount}");
+                        //}
                     }
-                    finally
+                    catch (SocketException ex)
                     {
-                        response.ReturnBuffer(responseBytes); // 必须归还内存池
+                        state.LogToServer(Severity.Warning, "Failed to send packet. SocketException: {0}", ex.Message);
+                        // Note: m_connectionManager contains SMB1ConnectionState or SMB2ConnectionState instances that were constructed from the initial
+                        // ConnectionState instance given to this method. for this reason, we must use state.ClientEndPoint to find and release the connection.
+                        m_connectionManager.ReleaseConnection(state.ClientEndPoint);
+                        return;
                     }
-                    //sendStopwatch.Stop();
-                    //if (responseBytes.Length > 1024)
-                    //{
-                    // 计算发送速度（单位：字节/秒）
-                    //double sendSpeed = (double)responseBytes.Length / 1024 / 1024 / (sendStopwatch.Elapsed.TotalSeconds);
-                    //    PrintWithInterval(state, $"send {response.Type} {responseBytes.Length}/{sendStopwatch.Elapsed.TotalSeconds} 速度: {sendSpeed:F2} MB/秒 | 队列剩余{state.SendQueue.Count} | activeConnections 数量 {m_connectionManager.ActiveConnectionsCount}");
-                    //}
-                }
-                catch (SocketException ex)
-                {
-                    state.LogToServer(Severity.Warning, "Failed to send packet. SocketException: {0}", ex.Message);
-                    // Note: m_connectionManager contains SMB1ConnectionState or SMB2ConnectionState instances that were constructed from the initial
-                    // ConnectionState instance given to this method. for this reason, we must use state.ClientEndPoint to find and release the connection.
-                    m_connectionManager.ReleaseConnection(state.ClientEndPoint);
-                    return;
-                }
-                catch (ObjectDisposedException)
-                {
-                    state.LogToServer(Severity.Warning, "Failed to send packet. ObjectDisposedException.");
-                    m_connectionManager.ReleaseConnection(state.ClientEndPoint);
-                    return;
-                }
+                    catch (ObjectDisposedException)
+                    {
+                        state.LogToServer(Severity.Warning, "Failed to send packet. ObjectDisposedException.");
+                        m_connectionManager.ReleaseConnection(state.ClientEndPoint);
+                        return;
+                    }
 
-                state.UpdateLastSendDT();
+                    state.UpdateLastSendDT();
+                }
             }
         }
 
