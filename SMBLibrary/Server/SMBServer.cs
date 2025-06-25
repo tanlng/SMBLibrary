@@ -223,6 +223,7 @@ namespace SMBLibrary.Server
 
                     TAPReceiveMsg receiveMsg = new TAPReceiveMsg(this);
                     //IOCPReceiveMsg receiveMsg = new IOCPReceiveMsg(this);
+                    //APMReceiveMsg receiveMsg = new APMReceiveMsg(this);
                     receiveMsg.InitAndStartReceive(state);
                 }
                 catch (ObjectDisposedException)

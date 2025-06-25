@@ -48,11 +48,11 @@ namespace SMBLibrary.Server.RecieveMsg
                 const int WSAECONNRESET = 10054;
                 if (ex.ErrorCode == WSAECONNRESET)
                 {
-                    state.LogToServer(Severity.Debug, "The connection was forcibly closed by the remote host");
+                    state.LogToServer(Severity.Warning, "The connection was forcibly closed by the remote host");
                 }
                 else
                 {
-                    state.LogToServer(Severity.Debug, "The connection was terminated, Socket error code: {0}", ex.ErrorCode);
+                    state.LogToServer(Severity.Warning, $"The connection was terminated, Socket error code: {ex.ErrorCode} {ex.Message}", );
                 }
                 _smbServer.m_connectionManager.ReleaseConnection(state);
                 return;

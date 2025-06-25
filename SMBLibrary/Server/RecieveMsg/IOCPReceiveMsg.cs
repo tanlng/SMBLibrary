@@ -67,7 +67,7 @@ namespace SMBLibrary.Server.RecieveMsg
                 }
                 else
                 {
-                    state.LogToServer(Severity.Debug, "The connection was terminated, Socket error code: {0}", ex.ErrorCode);
+                    state.LogToServer(Severity.Warning, $"The connection was terminated, Socket error code: {ex.ErrorCode} {ex.Message}");
                 }
                 _smbServer.m_connectionManager.ReleaseConnection(state);
                 return;
