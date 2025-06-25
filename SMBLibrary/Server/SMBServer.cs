@@ -361,7 +361,7 @@ namespace SMBLibrary.Server
             else if (packet is SessionRequestPacket && m_transport == SMBTransportType.NetBiosOverTCP)
             {
                 PositiveSessionResponsePacket response = new PositiveSessionResponsePacket();
-                state.Send(response);
+                state.SendQueue.Enqueue(response);
             }
             else if (packet is SessionKeepAlivePacket && m_transport == SMBTransportType.NetBiosOverTCP)
             {
