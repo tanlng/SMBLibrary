@@ -27,7 +27,7 @@ namespace SMBLibrary.Server.RecieveMsg
                     tcs.SetResult(false);
                     args.Dispose();
 
-                    state.LogToServer(Severity.Warning, $"The connection was terminated。 {e.SocketError}");
+                    state.LogToServer(Severity.Warning, $"The connection was terminated, Socket error code: {e.SocketError}");
                     _smbServer.m_connectionManager.ReleaseConnection(state);
                     return;
                 }

@@ -187,7 +187,7 @@ namespace SMBLibrary.Server
             SocketUtils.SetKeepAlive(clientSocket, TimeSpan.FromMinutes(2));
             // Disable the Nagle Algorithm for this tcp socket:
             clientSocket.NoDelay = true;
-            clientSocket.Blocking = false; // 切换到非阻塞模式
+            //clientSocket.Blocking = false; // 切换到非阻塞模式
 
             clientSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.SendBuffer, 64 * 1024);
             clientSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReceiveBuffer, 64 * 1024);
@@ -420,7 +420,7 @@ namespace SMBLibrary.Server
                 }
                 catch (SocketException ex)
                 {
-                    state.LogToServer(Severity.Debug, "Failed to send packet. SocketException: {0}", ex.Message);
+                    state.LogToServer(Severity.Warning, "Failed to send packet. SocketException: {0}", ex.Message);
                     // Note: m_connectionManager contains SMB1ConnectionState or SMB2ConnectionState instances that were constructed from the initial
                     // ConnectionState instance given to this method. for this reason, we must use state.ClientEndPoint to find and release the connection.
                     m_connectionManager.ReleaseConnection(state.ClientEndPoint);
@@ -428,7 +428,7 @@ namespace SMBLibrary.Server
                 }
                 catch (ObjectDisposedException)
                 {
-                    state.LogToServer(Severity.Debug, "Failed to send packet. ObjectDisposedException.");
+                    state.LogToServer(Severity.Warning, "Failed to send packet. ObjectDisposedException.");
                     m_connectionManager.ReleaseConnection(state.ClientEndPoint);
                     return;
                 }
