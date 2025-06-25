@@ -26,8 +26,7 @@ namespace SMBLibrary.Server.RecieveMsg
                 try
                 {
                     numberOfBytesReceived = await clientSocket.ReceiveAsync(
-                        new ArraySegment<byte>(state.ReceiveBuffer.Buffer, state.ReceiveBuffer.WriteOffset, state.ReceiveBuffer.AvailableLength),
-                        SocketFlags.Partial);
+                        new ArraySegment<byte>(state.ReceiveBuffer.Buffer, state.ReceiveBuffer.WriteOffset, state.ReceiveBuffer.AvailableLength));
                 }
                 catch (ObjectDisposedException)
                 {
