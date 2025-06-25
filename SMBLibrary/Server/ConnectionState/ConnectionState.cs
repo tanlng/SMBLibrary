@@ -170,45 +170,5 @@ namespace SMBLibrary.Server
         }
 
         public int SendAttempts { get; internal set; }
-        public void Send(SessionPacket response) {
-            Socket clientSocket = ClientSocket;
-            try
-            {
-                // 开始测量发送耗时
-                //Stopwatch sendStopwatch = Stopwatch.StartNew();
-                byte[] responseBytes = response.GetPoolBytes();
-                try
-                {
-                    clientSocket.Send(responseBytes, 0, response.ActualByteLength, SocketFlags.None);
-                }
-                finally
-                {
-                    response.ReturnBuffer(responseBytes); // 必须归还内存池
-                }
-                //sendStopwatch.Stop();
-                //if (responseBytes.Length > 1024)
-                //{
-                // 计算发送速度（单位：字节/秒）
-                //double sendSpeed = (double)responseBytes.Length / 1024 / 1024 / (sendStopwatch.Elapsed.TotalSeconds);
-                //    PrintWithInterval(state, $"send {response.Type} {responseBytes.Length}/{sendStopwatch.Elapsed.TotalSeconds} 速度: {sendSpeed:F2} MB/秒 | 队列剩余{state.SendQueue.Count} | activeConnections 数量 {m_connectionManager.ActiveConnectionsCount}");
-                //}
-            }
-            catch (SocketException ex)
-            {
-                LogToServer(Severity.Warning, "Failed to send packet. SocketException: {0}", ex.Message);
-                // Note: m_connectionManager contains SMB1ConnectionState or SMB2ConnectionState instances that were constructed from the initial
-                // ConnectionState instance given to this method. for this reason, we must use state.ClientEndPoint to find and release the connection.
-                //m_connectionManager.ReleaseConnection(ClientEndPoint);
-                return;
-            }
-            catch (ObjectDisposedException)
-            {
-                LogToServer(Severity.Warning, "Failed to send packet. ObjectDisposedException.");
-                //m_connectionManager.ReleaseConnection(ClientEndPoint);
-                return;
-            }
-
-            UpdateLastSendDT();
-        }
     }
 }

@@ -299,7 +299,7 @@ namespace SMBLibrary.Server
             SessionMessagePacket packet = new SessionMessagePacket();
             SMB2Dialect smb2Dialect = (signingKey != null) ? ToSMB2Dialect(state.Dialect) : SMB2Dialect.SMB2xx;
             packet.Trailer = SMB2Command.GetCommandChainBytes(responseChain, signingKey, smb2Dialect);
-            state.Send(packet);
+            state.SendQueue.Enqueue(packet);
             state.LogToServer(Severity.Verbose, "SMB2 response chain queued: Response count: {0}, First response: {1}, Packet length: {2}", responseChain.Count, responseChain[0].CommandName.ToString(), packet.Length);
         }
 
