@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading;
 using SMBLibrary.Authentication.GSSAPI;
 using SMBLibrary.NetBios;
 using Utilities;
@@ -29,6 +30,8 @@ namespace SMBLibrary.Server
         public SMBDialect Dialect;
         public GSSContext AuthenticationContext;
 
+        public readonly SemaphoreSlim SendSemaphore;
+
         public SocketAsyncEventArgs SendEventArgs { get; set; }
 
         public ConnectionState(Socket clientSocket, IPEndPoint clientEndPoint, LogDelegate logToServerHandler)
@@ -40,6 +43,7 @@ namespace SMBLibrary.Server
             m_creationDT = DateTime.UtcNow;
             m_lastReceiveDT = DateTime.UtcNow;
             m_lastSendDTRef = DateTime.UtcNow;
+            SendSemaphore = new SemaphoreSlim(0);
             LogToServerHandler = logToServerHandler;
             Dialect = SMBDialect.NotSet;
         }
@@ -55,6 +59,8 @@ namespace SMBLibrary.Server
             m_lastSendDTRef = state.LastSendDTRef;
             LogToServerHandler = state.LogToServerHandler;
             Dialect = state.Dialect;
+            SendCancelToken = state.SendCancelToken;
+            SendSemaphore = state.SendSemaphore;
         }
 
         /// <summary>
@@ -157,6 +163,12 @@ namespace SMBLibrary.Server
             m_lastSendDTRef.Value = DateTime.UtcNow;
         }
 
+        internal void Send(SessionPacket packet)
+        {
+            SendQueue.Enqueue(packet);
+            SendSemaphore.Release(); // 唤醒发送协程
+        }
+
         public string ConnectionIdentifier
         {
             get
@@ -170,5 +182,6 @@ namespace SMBLibrary.Server
         }
 
         public int SendAttempts { get; internal set; }
+        public CancellationTokenSource SendCancelToken { get; internal set; }
     }
 }
