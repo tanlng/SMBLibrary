@@ -281,7 +281,7 @@ namespace SMBLibrary.Server
         {
             SessionMessagePacket packet = new SessionMessagePacket();
             packet.Trailer = response.GetBytes();
-            state.SendQueue.Enqueue(packet);
+            state.Send(packet);
             state.LogToServer(Severity.Verbose, "SMB1 message queued: {0} responses, First response: {1}, Packet length: {2}", response.Commands.Count, response.Commands[0].CommandName.ToString(), packet.Length);
         }
 
