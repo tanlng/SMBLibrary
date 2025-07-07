@@ -76,10 +76,11 @@ namespace SMBLibrary.Server.SMB2
         internal static SMB2Command GetNegotiateResponse(NegotiateRequest request, GSSProvider securityProvider, ConnectionState state, SMBTransportType transportType, Guid serverGuid, DateTime serverStartTime, bool enableSMB3)
         {
             NegotiateResponse response = new NegotiateResponse();
-            if (!SetStateAndResponse(request, state, enableSMB3, response))
+            if (!SetDialect(request, state, enableSMB3, response))
             {
                 state.LogToServer(Severity.Verbose, "Negotiate failure: None of the requested SMB2 dialects is supported");
                 return new ErrorResponse(request.CommandName, NTStatus.STATUS_NOT_SUPPORTED);
+
             }
             response.SecurityMode = SecurityMode.SigningEnabled;
             response.ServerGuid = serverGuid;
@@ -124,7 +125,7 @@ namespace SMBLibrary.Server.SMB2
             return response;
         }
 
-        private static bool SetStateAndResponse(NegotiateRequest request, ConnectionState state, bool enableSMB3, NegotiateResponse response)
+        private static bool SetDialect(NegotiateRequest request, ConnectionState state, bool enableSMB3, NegotiateResponse response)
         {
             if (enableSMB3)
             {
@@ -141,18 +142,21 @@ namespace SMBLibrary.Server.SMB2
                     return true;
                 }
             }
-            else if (request.Dialects.Contains(SMB2Dialect.SMB210))
+
+            if (request.Dialects.Contains(SMB2Dialect.SMB210))
             {
                 state.Dialect = SMBDialect.SMB210;
                 response.DialectRevision = SMB2Dialect.SMB210;
                 return true;
             }
-            else if (request.Dialects.Contains(SMB2Dialect.SMB202))
+
+            if (request.Dialects.Contains(SMB2Dialect.SMB202))
             {
                 state.Dialect = SMBDialect.SMB202;
                 response.DialectRevision = SMB2Dialect.SMB202;
                 return true;
             }
+
             return false;
         }
 

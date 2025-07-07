@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -330,10 +331,8 @@ namespace SMBLibrary.Server
                 // Note: To be compatible with SMB2 specifications, we must accept SMB_COM_NEGOTIATE.
                 // We will disconnect the connection if m_enableSMB1 == false and the client does not support SMB2.
                 bool acceptSMB1 = (state.Dialect == SMBDialect.NotSet || state.Dialect == SMBDialect.NTLM012);
-                bool acceptSMB2 = (m_enableSMB2 &&
-                    (state.Dialect == SMBDialect.NotSet
-                    || state.Dialect == SMBDialect.SMB202 || state.Dialect == SMBDialect.SMB210
-                    || state.Dialect == SMBDialect.SMB300 || state.Dialect == SMBDialect.SMB311));
+                SMBDialect[] smb2SupportDialects = [SMBDialect.NotSet, SMBDialect.SMB202, SMBDialect.SMB210, SMBDialect.SMB300, SMBDialect.SMB311];
+                bool acceptSMB2 = (m_enableSMB2 && (smb2SupportDialects.Contains(state.Dialect)));
 
                 if (SMB1Header.IsValidSMB1Header(packet.Trailer))
                 {
