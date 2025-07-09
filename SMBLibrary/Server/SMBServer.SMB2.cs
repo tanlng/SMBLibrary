@@ -277,6 +277,8 @@ namespace SMBLibrary.Server
                     return SMB2Dialect.SMB210;
                 case SMBDialect.SMB300:
                     return SMB2Dialect.SMB300;
+                case SMBDialect.SMB302:
+                    return SMB2Dialect.SMB302;
                 case SMBDialect.SMB311:
                     return SMB2Dialect.SMB311;
                 default:

@@ -129,10 +129,10 @@ namespace SMBLibrary.Server.SMB2
         {
             if (enableSMB3)
             {
-                if (request.Dialects.Contains(SMB2Dialect.SMB311))
+                if (request.Dialects.Contains(SMB2Dialect.SMB302))
                 {
-                    state.Dialect = SMBDialect.SMB311;
-                    response.DialectRevision = SMB2Dialect.SMB311;
+                    state.Dialect = SMBDialect.SMB302;
+                    response.DialectRevision = SMB2Dialect.SMB302;
                     return true;
                 }
                 if (request.Dialects.Contains(SMB2Dialect.SMB300))

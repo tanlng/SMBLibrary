@@ -8,6 +8,7 @@ namespace SMBLibrary.Server
         SMB202,  // SMB 2.0.2
         SMB210,  // SMB 2.1
         SMB300,  // SMB 3.0
+        SMB302,  // SMB 3.0.2
         SMB311,  // SMB 3.1.1
     }
 }
