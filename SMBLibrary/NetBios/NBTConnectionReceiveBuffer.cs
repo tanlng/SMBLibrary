@@ -5,7 +5,7 @@
  * either version 3 of the License, or (at your option) any later version.
  */
 using System;
-#if NETSTANDARD2_0
+#if NET8_0
 using System.Buffers;
 #endif
 using System.IO;
@@ -35,7 +35,7 @@ namespace SMBLibrary.NetBios
                 throw new ArgumentException("bufferLength must be large enough to hold the largest possible NBT packet");
             }
 
-#if NETSTANDARD2_0
+#if NET8_0
             m_buffer = ArrayPool<byte>.Shared.Rent(bufferLength);
 #else
             m_buffer = new byte[bufferLength];
@@ -44,7 +44,7 @@ namespace SMBLibrary.NetBios
 
         public void IncreaseBufferSize(int bufferLength)
         {
-#if NETSTANDARD2_0
+#if NET8_0
             byte[] buffer = ArrayPool<byte>.Shared.Rent(bufferLength);
 #else
             byte[] buffer = new byte[bufferLength];
@@ -55,7 +55,7 @@ namespace SMBLibrary.NetBios
                 m_readOffset = 0;
             }
 
-#if NETSTANDARD2_0
+#if NET8_0
             ArrayPool<byte>.Shared.Return(m_buffer);
 #endif
             m_buffer = buffer;
@@ -130,7 +130,7 @@ namespace SMBLibrary.NetBios
 
         public void Dispose()
         {
-#if NETSTANDARD2_0
+#if NET8_0
             if (m_buffer != null)
             {
                 ArrayPool<byte>.Shared.Return(m_buffer);

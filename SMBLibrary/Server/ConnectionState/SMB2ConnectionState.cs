@@ -5,6 +5,7 @@
  * either version 3 of the License, or (at your option) any later version.
  */
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using SMBLibrary.SMB2;
@@ -48,18 +49,29 @@ namespace SMBLibrary.Server
             SMB2Session session = new SMB2Session(this, sessionID, userName, machineName, sessionKey, accessToken, signingRequired, signingKey);
             lock (m_sessions)
             {
-                m_sessions.Add(sessionID, session);
+                m_sessions.TryAdd(sessionID, session);
+            }
+            if (sessionID == lastSessionId)
+            {
+                lastSession = session;
             }
             return session;
         }
-
+        private ulong lastSessionId = 0;
+        private SMB2Session lastSession = null;
         public SMB2Session GetSession(ulong sessionID)
         {
+            if (lastSessionId == sessionID && lastSession != null)
+            {
+                return lastSession;
+            }
             SMB2Session session;
             lock (m_sessions)
             {
                 m_sessions.TryGetValue(sessionID, out session);
             }
+            lastSessionId = sessionID;
+            lastSession = session;
             return session;
         }
 
@@ -75,7 +87,12 @@ namespace SMBLibrary.Server
                 session.Close();
                 lock (m_sessions)
                 {
-                    m_sessions.Remove(sessionID);
+                    m_sessions.Remove(sessionID, out _);
+                }
+                if (sessionID == lastSessionId)
+                {
+                    lastSessionId = 0;
+                    lastSession = null;
                 }
             }
         }

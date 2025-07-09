@@ -7,6 +7,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 using System.Xml.Serialization;
 using SMBLibrary.NetBios;
 using SMBLibrary.Server.SMB2;
@@ -20,64 +21,85 @@ namespace SMBLibrary.Server
         private void ProcessSMB2RequestChain(List<SMB2Command> requestChain, ref ConnectionState state)
         {
 #if DEBUG
-            foreach (var item in requestChain)
-            {
-                state.LogToServer(Severity.Trace, $"Request {item.GetType().Name} \r\n" + Utilities.JsonConvertHelper.Serialize(item));
-            }
+            //foreach (var item in requestChain)
+            //{
+            //    state.LogToServer(Severity.Trace, $"Request {item.GetType().Name} \r\n" + Utilities.JsonConvertHelper.Serialize(item));
+            //}
 #endif
-            List<SMB2Command> responseChain = new List<SMB2Command>();
             FileID? fileID = null;
             NTStatus? fileIDStatus = null;
             foreach (SMB2Command request in requestChain)
             {
-                SMB2Command response;
-                if (request.Header.IsRelatedOperations && RequestContainsFileID(request))
+                //if (request is NegotiateRequest)
+                //{
+                    List<SMB2Command> responseChain = [];
+                    ProcessResponse(ref state, responseChain, ref fileID, ref fileIDStatus, request);
+                    if (responseChain.Count > 0)
+                    {
+                        EnqueueResponseChain(state, responseChain);
+                    }
+                //}
+                //else
+                //{
+                //    var currentState = state;
+                //    Task.Run(() =>
+                //    {
+                //        List<SMB2Command> responseChain = [];
+                //        ProcessResponse(ref currentState, responseChain, ref fileID, ref fileIDStatus, request);
+                //        if (responseChain.Count > 0)
+                //        {
+                //            EnqueueResponseChain(currentState, responseChain);
+                //        }
+                //    });
+                //}
+            }
+        }
+
+        private void ProcessResponse(ref ConnectionState state, List<SMB2Command> responseChain, ref FileID? fileID, ref NTStatus? fileIDStatus, SMB2Command request)
+        {
+            SMB2Command response;
+            if (request.Header.IsRelatedOperations && RequestContainsFileID(request))
+            {
+                if (fileIDStatus != null && fileIDStatus != NTStatus.STATUS_SUCCESS && fileIDStatus != NTStatus.STATUS_BUFFER_OVERFLOW)
                 {
-                    if (fileIDStatus != null && fileIDStatus != NTStatus.STATUS_SUCCESS && fileIDStatus != NTStatus.STATUS_BUFFER_OVERFLOW)
-                    {
-                        // [MS-SMB2] When the current request requires a FileId and the previous request either contains
-                        // or generates a FileId, if the previous request fails with an error, the server SHOULD fail the
-                        // current request with the same error code returned by the previous request.
-                        state.LogToServer(Severity.Verbose, "Compunded related request {0} failed because FileId generation failed.", request.CommandName);
-                        response = new ErrorResponse(request.CommandName, fileIDStatus.Value);
-                    }
-                    else if (fileID.HasValue)
-                    {
-                        SetRequestFileID(request, fileID.Value);
-                        response = ProcessSMB2Command(request, ref state);
-                    }
-                    else
-                    {
-                        // [MS-SMB2] When the current request requires a FileId, and if the previous request neither contains
-                        // nor generates a FileId, the server MUST fail the compounded request with STATUS_INVALID_PARAMETER.
-                        state.LogToServer(Severity.Verbose, "Compunded related request {0} failed, the previous request neither contains nor generates a FileId.", request.CommandName);
-                        response = new ErrorResponse(request.CommandName, NTStatus.STATUS_INVALID_PARAMETER);
-                    }
+                    // [MS-SMB2] When the current request requires a FileId and the previous request either contains
+                    // or generates a FileId, if the previous request fails with an error, the server SHOULD fail the
+                    // current request with the same error code returned by the previous request.
+                    state.LogToServer(Severity.Verbose, "Compunded related request {0} failed because FileId generation failed.", request.CommandName);
+                    response = new ErrorResponse(request.CommandName, fileIDStatus.Value);
+                }
+                else if (fileID.HasValue)
+                {
+                    SetRequestFileID(request, fileID.Value);
+                    response = ProcessSMB2Command(request, ref state);
                 }
                 else
                 {
-                    fileID = GetRequestFileID(request);
-                    response = ProcessSMB2Command(request, ref state);
-                }
-
-                if (response != null)
-                {
-                    UpdateSMB2Header(response, request, state);
-                    responseChain.Add(response);
-                    if (GeneratesFileID(response))
-                    {
-                        fileID = GetResponseFileID(response);
-                        fileIDStatus = response.Header.Status;
-                    }
-                    else if (RequestContainsFileID(request))
-                    {
-                        fileIDStatus = response.Header.Status;
-                    }
+                    // [MS-SMB2] When the current request requires a FileId, and if the previous request neither contains
+                    // nor generates a FileId, the server MUST fail the compounded request with STATUS_INVALID_PARAMETER.
+                    state.LogToServer(Severity.Verbose, "Compunded related request {0} failed, the previous request neither contains nor generates a FileId.", request.CommandName);
+                    response = new ErrorResponse(request.CommandName, NTStatus.STATUS_INVALID_PARAMETER);
                 }
             }
-            if (responseChain.Count > 0)
+            else
             {
-                EnqueueResponseChain(state, responseChain);
+                fileID = GetRequestFileID(request);
+                response = ProcessSMB2Command(request, ref state);
+            }
+
+            if (response != null)
+            {
+                UpdateSMB2Header(response, request, state);
+                responseChain.Add(response);
+                if (GeneratesFileID(response))
+                {
+                    fileID = GetResponseFileID(response);
+                    fileIDStatus = response.Header.Status;
+                }
+                else if (RequestContainsFileID(request))
+                {
+                    fileIDStatus = response.Header.Status;
+                }
             }
         }
 
@@ -119,7 +141,21 @@ namespace SMBLibrary.Server
             }
             else
             {
-                return ProcessSMB2Command(command, (SMB2ConnectionState)state);
+                // 使用高精度计时器记录命令处理的开始时间
+                // System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+                // 处理命令
+                SMB2Command result = ProcessSMB2Command(command, (SMB2ConnectionState)state);
+
+                // 停止计时器并记录处理时间
+                // stopwatch.Stop();
+                //state.LogToServer(Severity.Information, "[性能统计] 处理 {0} 命令耗时: {1} 微秒", 
+                //    command.CommandName, stopwatch.ElapsedTicks * 1000000.0 / System.Diagnostics.Stopwatch.Frequency);
+                // 同时以毫秒为单位记录处理时间
+                // double milliseconds = stopwatch.ElapsedMilliseconds;
+                // state.LogToServer(Severity.Information, "[性能统计] 处理 {0} 命令耗时: {1} 毫秒", command.CommandName, milliseconds);
+                return result;
+                //return ProcessSMB2Command(command, (SMB2ConnectionState)state);
             }
         }
 
@@ -263,7 +299,7 @@ namespace SMBLibrary.Server
             SessionMessagePacket packet = new SessionMessagePacket();
             SMB2Dialect smb2Dialect = (signingKey != null) ? ToSMB2Dialect(state.Dialect) : SMB2Dialect.SMB2xx;
             packet.Trailer = SMB2Command.GetCommandChainBytes(responseChain, signingKey, smb2Dialect);
-            state.SendQueue.Enqueue(packet);
+            state.Send(packet);
             state.LogToServer(Severity.Verbose, "SMB2 response chain queued: Response count: {0}, First response: {1}, Packet length: {2}", responseChain.Count, responseChain[0].CommandName.ToString(), packet.Length);
         }
 

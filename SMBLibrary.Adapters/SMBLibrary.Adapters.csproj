@@ -1,7 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.0</TargetFrameworks>
+    <TargetFrameworks>net8.0</TargetFrameworks>
     <AssemblyName>SMBLibrary.Adapters</AssemblyName>
     <Version>1.5.4</Version>
     <NoWarn>1573;1591</NoWarn>
@@ -14,14 +13,11 @@
     <RepositoryUrl>https://github.com/TalAloni/SMBLibrary</RepositoryUrl>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\SMBLibrary\SMBLibrary.csproj" />
   </ItemGroup>
-  
   <ItemGroup>
     <PackageReference Include="DiskAccessLibrary" Version="1.6.1" />
     <PackageReference Include="NLog" Version="5.4.0" />
   </ItemGroup>
-
 </Project>

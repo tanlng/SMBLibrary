@@ -191,6 +191,7 @@ namespace SMBLibrary.Authentication.NTLM
                 }
                 else
                 {
+                    //return NTStatus.STATUS_ACCOUNT_LOCKED_OUT;
                     return NTStatus.STATUS_LOGON_FAILURE;
                 }
             }
@@ -210,6 +211,10 @@ namespace SMBLibrary.Authentication.NTLM
                 }
                 else
                 {
+                    // 海尔姚工的机器会发送机器用户名 HAIER\HGC-NA-21052156$ 而不是SMB的用户名。用机器的用户名如果报登录失败，会提示只读。尝试修复这个问题
+                    if (message.UserName.EndsWith("$")) {
+                        return NTStatus.STATUS_ACCOUNT_LOCKED_OUT;
+                    }
                     if (m_loginCounter.HasRemainingLoginAttempts(message.UserName.ToLower(), true))
                     {
                         return NTStatus.STATUS_LOGON_FAILURE;
@@ -281,6 +286,7 @@ namespace SMBLibrary.Authentication.NTLM
             }
             else
             {
+                //return NTStatus.STATUS_ACCOUNT_LOCKED_OUT;
                 if (m_loginCounter.HasRemainingLoginAttempts(message.UserName.ToLower(), true))
                 {
                     return NTStatus.STATUS_LOGON_FAILURE;

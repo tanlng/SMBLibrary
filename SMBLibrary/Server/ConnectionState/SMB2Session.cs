@@ -148,7 +148,7 @@ namespace SMBLibrary.Server
                     fileID.Persistent = CacheHelper.TryGet<ulong>($"fileID_{shareName}/{relativePath}", () =>
                     {
                         return volatileFileID.Value;
-                    }, 10);
+                    }, 5);
                     m_openFiles.Add(volatileFileID.Value, new OpenFileObject(treeID, shareName, relativePath, handle, fileAccess));
                     return fileID;
                 }

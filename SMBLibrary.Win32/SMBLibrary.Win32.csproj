@@ -1,7 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.0</TargetFrameworks>
+    <TargetFrameworks>net8.0</TargetFrameworks>
     <AssemblyName>SMBLibrary.Win32</AssemblyName>
     <Version>1.5.4</Version>
     <NoWarn>1573;1591</NoWarn>
@@ -14,18 +13,14 @@
     <RepositoryUrl>https://github.com/TalAloni/SMBLibrary</RepositoryUrl>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
-
   <ItemGroup>
     <PackageReference Include="NLog" Version="5.4.0" />
   </ItemGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\SMBLibrary\SMBLibrary.csproj" />
     <ProjectReference Include="..\Utilities\Utilities.csproj" />
   </ItemGroup>
-  
   <ItemGroup Condition="'$(Configuration)' != 'Release'">
     <ProjectReference Include="..\Utilities\Utilities.csproj" />
   </ItemGroup>
-
 </Project>

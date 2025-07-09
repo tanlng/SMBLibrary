@@ -23,9 +23,9 @@ namespace SMBLibrary.Server.SMB2
         public const uint ServerMaxTransactSize = 65536;
         public const uint ServerMaxReadSize = 65536;
         public const uint ServerMaxWriteSize = 65536;
-        public const uint ServerMaxTransactSizeLargeMTU = 10 * 1048576;
-        public const uint ServerMaxReadSizeLargeMTU = 10 * 1048576;
-        public const uint ServerMaxWriteSizeLargeMTU = 10 * 1048576;
+        public const uint ServerMaxTransactSizeLargeMTU = 8 * 1024 * 1024;
+        public const uint ServerMaxReadSizeLargeMTU = 8 * 1024 * 1024;
+        public const uint ServerMaxWriteSizeLargeMTU = 8 * 1024 * 1024;
 
         // Special case - SMB2 client initially connecting using SMB1
         internal static SMB2Command GetNegotiateResponse(List<string> smb2Dialects, GSSProvider securityProvider, ConnectionState state, SMBTransportType transportType, Guid serverGuid, DateTime serverStartTime)
@@ -70,6 +70,18 @@ namespace SMBLibrary.Server.SMB2
             response.SystemTime = DateTime.Now;
             response.ServerStartTime = serverStartTime;
             response.SecurityBuffer = securityProvider.GetSPNEGOTokenInitBytes();
+
+            // 记录协商响应的详细信息
+            state.LogToServer(Severity.Information, "[协商响应] DialectRevision: {0}", response.DialectRevision);
+            state.LogToServer(Severity.Information, "[协商响应] SecurityMode: {0}", response.SecurityMode);
+            state.LogToServer(Severity.Information, "[协商响应] ServerGuid: {0}", response.ServerGuid);
+            state.LogToServer(Severity.Information, "[协商响应] Capabilities: {0}", response.Capabilities);
+            state.LogToServer(Severity.Information, "[协商响应] MaxTransactSize: {0} 字节", response.MaxTransactSize);
+            state.LogToServer(Severity.Information, "[协商响应] MaxReadSize: {0} 字节", response.MaxReadSize);
+            state.LogToServer(Severity.Information, "[协商响应] MaxWriteSize: {0} 字节", response.MaxWriteSize);
+            state.LogToServer(Severity.Information, "[协商响应] SystemTime: {0}", response.SystemTime);
+            state.LogToServer(Severity.Information, "[协商响应] ServerStartTime: {0}", response.ServerStartTime);
+            state.LogToServer(Severity.Information, "[协商响应] SecurityBufferLength: {0} 字节", response.SecurityBuffer.Length);
             return response;
         }
 
@@ -86,7 +98,7 @@ namespace SMBLibrary.Server.SMB2
             response.ServerGuid = serverGuid;
             if (state.Dialect != SMBDialect.SMB202 && transportType == SMBTransportType.DirectTCPTransport)
             {
-                response.Capabilities = Capabilities.LargeMTU | Capabilities.Leasing;
+                response.Capabilities = Capabilities.LargeMTU;
                 response.MaxTransactSize = ServerMaxTransactSizeLargeMTU;
                 response.MaxReadSize = ServerMaxReadSizeLargeMTU;
                 response.MaxWriteSize = ServerMaxWriteSizeLargeMTU;
@@ -103,6 +115,7 @@ namespace SMBLibrary.Server.SMB2
                 response.MaxReadSize = ServerMaxReadSize;
                 response.MaxWriteSize = ServerMaxWriteSize;
             }
+
             response.SystemTime = DateTime.Now;
             response.ServerStartTime = serverStartTime;
             response.SecurityBuffer = securityProvider.GetSPNEGOTokenInitBytes();
@@ -122,6 +135,17 @@ namespace SMBLibrary.Server.SMB2
                 response.NegotiateContextList.Add(preAuthIntegrityCapabilities);
             }
 
+            // 记录协商响应的详细信息
+            state.LogToServer(Severity.Information, "[协商响应] DialectRevision: {0}", response.DialectRevision);
+            state.LogToServer(Severity.Information, "[协商响应] SecurityMode: {0}", response.SecurityMode);
+            state.LogToServer(Severity.Information, "[协商响应] ServerGuid: {0}", response.ServerGuid);
+            state.LogToServer(Severity.Information, "[协商响应] Capabilities: {0}", response.Capabilities);
+            state.LogToServer(Severity.Information, "[协商响应] MaxTransactSize: {0} 字节", response.MaxTransactSize);
+            state.LogToServer(Severity.Information, "[协商响应] MaxReadSize: {0} 字节", response.MaxReadSize);
+            state.LogToServer(Severity.Information, "[协商响应] MaxWriteSize: {0} 字节", response.MaxWriteSize);
+            state.LogToServer(Severity.Information, "[协商响应] SystemTime: {0}", response.SystemTime);
+            state.LogToServer(Severity.Information, "[协商响应] ServerStartTime: {0}", response.ServerStartTime);
+            state.LogToServer(Severity.Information, "[协商响应] SecurityBufferLength: {0} 字节", response.SecurityBuffer.Length);
             return response;
         }
 

@@ -28,7 +28,7 @@ namespace SMBLibrary.Server.SMB2
             {
                 if (!((FileSystemShare)share).HasReadAccess(session.SecurityContext, openFile.Path))
                 {
-                    state.LogToServer(Severity.Verbose, "Read from '{0}{1}' failed. User '{2}' was denied access.", share.Name, openFile.Path, session.UserName);
+                    //state.LogToServer(Severity.Verbose, "Read from '{0}{1}' failed. User '{2}' was denied access.", share.Name, openFile.Path, session.UserName);
                     return new ErrorResponse(request.CommandName, NTStatus.STATUS_ACCESS_DENIED);
                 }
             }
@@ -49,6 +49,7 @@ namespace SMBLibrary.Server.SMB2
         {
             SMB2Session session = state.GetSession(request.Header.SessionID);
             OpenFileObject openFile = session.GetOpenFileObject(request.FileId);
+
             if (openFile == null)
             {
                 state.LogToServer(Severity.Verbose, "Write failed. Invalid FileId. (SessionID: {0}, TreeID: {1}, FileId: {2})", request.Header.SessionID, request.Header.TreeID, request.FileId.Volatile);
@@ -63,7 +64,6 @@ namespace SMBLibrary.Server.SMB2
                     return new ErrorResponse(request.CommandName, NTStatus.STATUS_ACCESS_DENIED);
                 }
             }
-
             int numberOfBytesWritten;
             NTStatus writeStatus = share.FileStore.WriteFile(out numberOfBytesWritten, openFile.Handle, (long)request.Offset, request.Data);
             if (writeStatus != NTStatus.STATUS_SUCCESS)
