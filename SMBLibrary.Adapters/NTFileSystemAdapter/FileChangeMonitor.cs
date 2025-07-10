@@ -160,11 +160,6 @@ namespace SMBLibrary.Adapters
             }
             else
             {
-                var lastIndex = localPath.LastIndexOf(".-_-");
-                if (lastIndex != -1)
-                {
-                    localPath = localPath.Substring(0, lastIndex);
-                }
                 return Path.GetFileName(localPath);
             }
         }
