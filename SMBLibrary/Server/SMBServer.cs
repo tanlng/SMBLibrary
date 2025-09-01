@@ -191,9 +191,9 @@ namespace SMBLibrary.Server
             clientSocket.NoDelay = true;
             //clientSocket.Blocking = false; // 切换到非阻塞模式
 
-            clientSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.SendBuffer, 64 * 1024);
-            clientSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReceiveBuffer, 64 * 1024);
-            clientSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            // clientSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.SendBuffer, 64 * 1024);
+            // clientSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReceiveBuffer, 64 * 1024);
+            // clientSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
 
             IPEndPoint clientEndPoint = (IPEndPoint)clientSocket.RemoteEndPoint;
             EventHandler<ConnectionRequestEventArgs> handler = ConnectionRequested;
