@@ -30,6 +30,8 @@ namespace SMBLibrary.Server
             NTStatus? fileIDStatus = null;
             foreach (SMB2Command request in requestChain)
             {
+                try
+                {
                 //if (request is NegotiateRequest)
                 //{
                     List<SMB2Command> responseChain = [];
@@ -52,6 +54,11 @@ namespace SMBLibrary.Server
                 //        }
                 //    });
                 //}
+            }
+                catch (Exception ex)
+                {
+                    state.LogToServer(Severity.Error, $"{ex.Message} \r\n  {ex.Source} \r\n  {ex.StackTrace} \r\n InnerException:{ex.InnerException}");
+        }
             }
         }
 

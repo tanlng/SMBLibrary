@@ -135,6 +135,17 @@ namespace SMBLibrary.Server.SMB2
                 response.NegotiateContextList.Add(preAuthIntegrityCapabilities);
             }
 
+            // 记录协商响应的详细信息
+            state.LogToServer(Severity.Information, "[协商响应] DialectRevision: {0}", response.DialectRevision);
+            state.LogToServer(Severity.Information, "[协商响应] SecurityMode: {0}", response.SecurityMode);
+            state.LogToServer(Severity.Information, "[协商响应] ServerGuid: {0}", response.ServerGuid);
+            state.LogToServer(Severity.Information, "[协商响应] Capabilities: {0}", response.Capabilities);
+            state.LogToServer(Severity.Information, "[协商响应] MaxTransactSize: {0} 字节", response.MaxTransactSize);
+            state.LogToServer(Severity.Information, "[协商响应] MaxReadSize: {0} 字节", response.MaxReadSize);
+            state.LogToServer(Severity.Information, "[协商响应] MaxWriteSize: {0} 字节", response.MaxWriteSize);
+            state.LogToServer(Severity.Information, "[协商响应] SystemTime: {0}", response.SystemTime);
+            state.LogToServer(Severity.Information, "[协商响应] ServerStartTime: {0}", response.ServerStartTime);
+            state.LogToServer(Severity.Information, "[协商响应] SecurityBufferLength: {0} 字节", response.SecurityBuffer.Length);
             return response;
         }
 
