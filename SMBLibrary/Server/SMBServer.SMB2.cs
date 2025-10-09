@@ -30,28 +30,35 @@ namespace SMBLibrary.Server
             NTStatus? fileIDStatus = null;
             foreach (SMB2Command request in requestChain)
             {
-                //if (request is NegotiateRequest)
-                //{
+                try
+                {
+                    //if (request is NegotiateRequest)
+                    //{
                     List<SMB2Command> responseChain = [];
                     ProcessResponse(ref state, responseChain, ref fileID, ref fileIDStatus, request);
                     if (responseChain.Count > 0)
                     {
                         EnqueueResponseChain(state, responseChain);
                     }
-                //}
-                //else
-                //{
-                //    var currentState = state;
-                //    Task.Run(() =>
-                //    {
-                //        List<SMB2Command> responseChain = [];
-                //        ProcessResponse(ref currentState, responseChain, ref fileID, ref fileIDStatus, request);
-                //        if (responseChain.Count > 0)
-                //        {
-                //            EnqueueResponseChain(currentState, responseChain);
-                //        }
-                //    });
-                //}
+                    //}
+                    //else
+                    //{
+                    //    var currentState = state;
+                    //    Task.Run(() =>
+                    //    {
+                    //        List<SMB2Command> responseChain = [];
+                    //        ProcessResponse(ref currentState, responseChain, ref fileID, ref fileIDStatus, request);
+                    //        if (responseChain.Count > 0)
+                    //        {
+                    //            EnqueueResponseChain(currentState, responseChain);
+                    //        }
+                    //    });
+                    //}
+                }
+                catch (Exception ex)
+                {
+                    state.LogToServer(Severity.Error, $"{ex.Message} \r\n  {ex.Source} \r\n  {ex.StackTrace} \r\n InnerException:{ex.InnerException}");
+                }
             }
         }
 
