@@ -4,6 +4,8 @@
 
 租赁管理器 (LeaseManager) 是 SMBLibrary 中负责管理 SMB 2.0/2.1 租赁协议的核心组件。它提供了完整的租赁生命周期管理功能，包括租赁创建、状态跟踪、中断处理和清理。
 
+**重要**: 租赁协议是**可选功能**。默认情况下租赁协议是**禁用**的，只有在 `SMBServer.LeaseConfiguration` 属性被设置后才会启用租赁管理器。
+
 ## 命名空间
 
 ```csharp
@@ -30,8 +32,8 @@ public LeaseManager()
 |--------|------|------|
 | `ActiveLeaseCount` | `int` | 当前活跃租赁数量 |
 | `MaxLeases` | `int` | 最大允许租赁数量 |
-| `DefaultLeaseDuration` | `TimeSpan` | 默认租赁持续时间 |
-| `LeaseBreakTimeout` | `TimeSpan` | 租赁中断超时时间 |
+| `DefaultLeaseDuration` | `TimeSpan` | **租赁生命周期**: 从创建到自动过期的时间，控制客户端可以缓存数据的最长时间 |
+| `LeaseBreakTimeout` | `TimeSpan` | **租赁中断超时**: 主动中断租赁时，等待客户端响应的最长时间，超时后强制中断 |
 
 #### 方法
 
@@ -422,6 +424,38 @@ public class LeaseManagerConfiguration
     public LogLevel LogLevel { get; set; } = LogLevel.Information;
 }
 ```
+
+#### 配置属性详解
+
+| 属性 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `MaxLeases` | `int` | `10000` | 系统允许的最大租赁数量 |
+| `DefaultLeaseDuration` | `TimeSpan` | `30分钟` | **租赁生命周期**: 从租赁创建开始计时，到达此时间后租赁自动过期。这是租赁的**自然过期时间**。 |
+| `LeaseBreakTimeout` | `TimeSpan` | `30秒` | **租赁中断超时**: 当需要主动中断租赁时（如文件冲突），等待客户端响应的最长时间。超时后服务器强制中断租赁。 |
+| `CleanupInterval` | `TimeSpan` | `5分钟` | 清理过期租赁的检查间隔 |
+| `EnableLeaseBreakNotifications` | `bool` | `true` | 是否启用租赁中断通知 |
+| `EnableLeaseExpirationEvents` | `bool` | `true` | 是否启用租赁过期事件 |
+| `LogLevel` | `LogLevel` | `Information` | 日志级别 |
+
+#### DefaultLeaseDuration vs LeaseBreakTimeout
+
+这两个参数容易混淆，但它们控制的是**完全不同的时间周期**：
+
+**DefaultLeaseDuration（租赁生命周期）**
+- 📅 **计时起点**: 租赁创建时
+- ⏱️ **适用场景**: 所有租赁，无论是否发生冲突
+- 🎯 **用途**: 控制客户端可以缓存文件数据的最长时间
+- ⚡ **到期效果**: 租赁自动过期失效，客户端需要重新请求
+- 📊 **典型值**: 3秒（测试）到 30分钟（生产）
+
+**LeaseBreakTimeout（租赁中断超时）**
+- 📅 **计时起点**: 发送租赁中断通知时
+- ⏱️ **适用场景**: 仅当需要主动中断租赁时（如另一个客户端请求独占访问）
+- 🎯 **用途**: 防止客户端无响应导致租赁中断流程卡住
+- ⚡ **到期效果**: 强制中断租赁，不再等待客户端确认
+- 📊 **典型值**: 10秒 到 60秒
+
+**重要**: `DefaultLeaseDuration` **不影响**租赁中断速度。即使设置了 30 分钟的生命周期，服务器仍可以在任何时候立即中断租赁（由 `LeaseBreakTimeout` 控制中断流程的超时）。
 
 ## 使用示例
 

@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFrameworks>netcoreapp3.1</TargetFrameworks>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <Copyright>Copyright © Tal Aloni 2014-2025</Copyright>
     <AssemblyName>SMBServer</AssemblyName>
     <Version>1.5.4</Version>

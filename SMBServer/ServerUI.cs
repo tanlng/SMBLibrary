@@ -101,6 +101,18 @@ namespace SMBServer
 
             GSSProvider securityProvider = new GSSProvider(authenticationMechanism);
             m_server = new SMBLibrary.Server.SMBServer(shares, securityProvider);
+            
+            // Configure lease settings with 3 second expiration
+            m_server.LeaseConfiguration = new SMBLibrary.Server.Leasing.LeaseManagerConfiguration
+            {
+                MaxLeases = 1000,
+                DefaultLeaseDuration = TimeSpan.FromSeconds(3), // 3 seconds as requested
+                LeaseBreakTimeout = TimeSpan.FromSeconds(30),
+                CleanupInterval = TimeSpan.FromSeconds(3), // Check every second to quickly clean up expired leases
+                EnableLeaseBreakNotifications = true,
+                EnableLeaseExpirationEvents = true
+            };
+            
             m_logWriter = new LogWriter();
             // The provided logging mechanism will synchronously write to the disk during server activity.
             // To maximize server performance, you can disable logging by commenting out the following line.
