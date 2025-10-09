@@ -9,7 +9,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using SMBLibrary.SMB2;
+using SMBLibrary.Server.Leasing;
 using SMBLibrary.Utilities;
+using SMBLibrary.NetBios;
 using Utilities;
 
 namespace SMBLibrary.Server
@@ -35,7 +37,12 @@ namespace SMBLibrary.Server
         // Key is the volatile portion of the FileID
         private Dictionary<ulong, OpenSearch> m_openSearches = new Dictionary<ulong, OpenSearch>();
 
-        public SMB2Session(SMB2ConnectionState connection, ulong sessionID, string userName, string machineName, byte[] sessionKey, object accessToken, bool signingRequired, byte[] signingKey)
+        // 租赁管理
+        private LeaseManager m_leaseManager;
+        private LeaseContextHandler m_leaseContextHandler;
+        private LeaseBreakHandler m_leaseBreakHandler;
+
+        public SMB2Session(SMB2ConnectionState connection, ulong sessionID, string userName, string machineName, byte[] sessionKey, object accessToken, bool signingRequired, byte[] signingKey, LeaseManagerConfiguration leaseConfig = null)
         {
             m_connection = connection;
             m_sessionID = sessionID;
@@ -44,6 +51,154 @@ namespace SMBLibrary.Server
             m_creationDT = DateTime.UtcNow;
             m_signingRequired = signingRequired;
             m_signingKey = signingKey;
+
+            // 初始化租赁管理器
+            InitializeLeaseManager(leaseConfig);
+        }
+
+        /// <summary>
+        /// Initialize lease manager
+        /// </summary>
+        private void InitializeLeaseManager(LeaseManagerConfiguration leaseConfig)
+        {
+            // Lease protocol is optional - only initialize if configuration is provided
+            if (leaseConfig == null)
+            {
+                m_leaseManager = null;
+                m_leaseContextHandler = null;
+                m_leaseBreakHandler = null;
+                return;
+            }
+
+            m_leaseManager = new LeaseManager(leaseConfig);
+            m_leaseContextHandler = new LeaseContextHandler(m_leaseManager);
+            m_leaseBreakHandler = new LeaseBreakHandler(m_leaseManager);
+
+            // Subscribe to lease events
+            m_leaseManager.LeaseBreakRequested += OnLeaseBreakRequested;
+            m_leaseManager.LeaseExpired += OnLeaseExpired;
+        }
+
+        /// <summary>
+        /// Handle lease break request
+        /// </summary>
+        private void OnLeaseBreakRequested(object sender, LeaseBreakEventArgs e)
+        {
+            if (m_leaseManager == null)
+                return;
+                
+            // Send lease break notification
+            SendLeaseBreakNotification(e.LeaseKey, e.Reason);
+        }
+
+        /// <summary>
+        /// Handle lease expiration
+        /// </summary>
+        private void OnLeaseExpired(object sender, LeaseExpiredEventArgs e)
+        {
+            if (m_leaseManager == null)
+                return;
+                
+            // Log lease expiration
+            LogToServer(Severity.Information, "Lease expired: {0}", e.LeaseInfo.LeaseKey);
+        }
+
+        /// <summary>
+        /// Send lease break notification
+        /// </summary>
+        private void SendLeaseBreakNotification(Guid leaseKey, LeaseBreakReason reason)
+        {
+            try
+            {
+                // Create lease break request
+                var leaseBreakRequest = new LeaseBreakRequest
+                {
+                    LeaseKey = leaseKey,
+                    CurrentLeaseState = LeaseState.None, // Will be set by lease manager
+                    NewLeaseState = LeaseState.None,    // Will be set by lease manager
+                    LeaseFlags = LeaseFlags.BreakInProgress,
+                    LeaseDuration = 0
+                };
+
+                // Get lease info to set proper states
+                var leaseInfo = m_leaseManager.GetLeaseInfo(leaseKey);
+                if (leaseInfo != null)
+                {
+                    leaseBreakRequest.CurrentLeaseState = leaseInfo.State;
+                    leaseBreakRequest.NewLeaseState = DetermineNewLeaseState(leaseInfo.State, reason);
+                }
+
+                // Create SMB2 command with proper header
+                var command = new LeaseBreakRequest();
+                command.Header.Command = SMB2CommandName.OplockBreak;
+                command.Header.SessionID = m_sessionID;
+                command.Header.TreeID = 0; // Lease breaks are not tied to specific trees
+                command.Header.CreditCharge = 1;
+                command.Header.Credits = 1;
+                command.Header.Flags = 0;
+                command.Header.NextCommand = 0;
+                command.Header.MessageID = 0; // Will be set by server
+                // ProcessID and StructureSize are private fields, skip setting them
+
+                // Set lease break specific fields
+                command.LeaseKey = leaseKey;
+                command.CurrentLeaseState = leaseBreakRequest.CurrentLeaseState;
+                command.NewLeaseState = leaseBreakRequest.NewLeaseState;
+                command.LeaseFlags = LeaseFlags.BreakInProgress;
+                command.LeaseDuration = 0;
+
+                // Send the command using the connection's send mechanism
+                // This integrates with the existing SMB server's network sending infrastructure
+                var responseChain = new List<SMB2Command> { command };
+                var packet = new SessionMessagePacket();
+                packet.Trailer = SMB2Command.GetCommandChainBytes(responseChain, m_signingKey, SMB2Dialect.SMB2xx);
+                
+                // Send through connection state
+                m_connection.Send(packet);
+                
+                LogToServer(Severity.Debug, "Sent lease break notification for lease {0}, reason: {1}", leaseKey, reason);
+            }
+            catch (Exception ex)
+            {
+                LogToServer(Severity.Error, "Failed to send lease break notification for lease {0}: {1}", leaseKey, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Determine new lease state based on break reason
+        /// </summary>
+        private LeaseState DetermineNewLeaseState(LeaseState currentState, LeaseBreakReason reason)
+        {
+            switch (reason)
+            {
+                case LeaseBreakReason.WriteRequest:
+                    // Downgrade to read-only if write access is requested
+                    return currentState & ~LeaseState.WriteCaching;
+                    
+                case LeaseBreakReason.HandleClose:
+                    // Remove handle caching
+                    return currentState & ~LeaseState.HandleCaching;
+                    
+                case LeaseBreakReason.SessionLogoff:
+                case LeaseBreakReason.ServerShutdown:
+                    // Remove all caching
+                    return LeaseState.None;
+                    
+                default:
+                    // Keep current state for other reasons
+                    return currentState;
+            }
+        }
+
+        /// <summary>
+        /// Log message to server
+        /// </summary>
+        private void LogToServer(Severity severity, string message, params object[] args)
+        {
+            if (m_connection != null)
+            {
+                m_connection.LogToServer(severity, string.Format(message, args));
+            }
         }
 
         private uint? AllocateTreeID()

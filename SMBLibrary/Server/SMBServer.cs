@@ -36,6 +36,7 @@ namespace SMBLibrary.Server
         private GSSProvider m_securityProvider;
         private NamedPipeShare m_services; // Named pipes
         private Guid m_serverGuid;
+        private SMBLibrary.Server.Leasing.LeaseManagerConfiguration m_leaseConfig;
 
         internal ConnectionManager m_connectionManager;
         private Thread m_sendSMBKeepAliveThread;
@@ -55,6 +56,15 @@ namespace SMBLibrary.Server
         public event EventHandler<ConnectionRequestEventArgs> ConnectionRequested;
         public event EventHandler<LogEntry> LogEntryAdded;
 
+        /// <summary>
+        /// Gets or sets the lease manager configuration. Must be set before starting the server.
+        /// </summary>
+        public SMBLibrary.Server.Leasing.LeaseManagerConfiguration LeaseConfiguration
+        {
+            get { return m_leaseConfig; }
+            set { m_leaseConfig = value; }
+        }
+
         public SMBServer(SMBShareCollection shares, GSSProvider securityProvider)
         {
             m_shares = shares;
@@ -62,6 +72,9 @@ namespace SMBLibrary.Server
             m_services = new NamedPipeShare(shares.ListShares());
             m_serverGuid = Guid.NewGuid();
             m_connectionManager = new ConnectionManager();
+            
+            // Lease configuration is optional - set LeaseConfiguration property to enable
+            m_leaseConfig = null;
         }
 
         public void Start(IPAddress serverAddress, SMBTransportType transport)
@@ -305,7 +318,7 @@ namespace SMBLibrary.Server
                             SMB2Command response = SMB2.NegotiateHelper.GetNegotiateResponse(smb2Dialects, m_securityProvider, state, m_transport, m_serverGuid, m_serverStartTime);
                             if (state.Dialect != SMBDialect.NotSet)
                             {
-                                state = new SMB2ConnectionState(state);
+                                state = new SMB2ConnectionState(state, m_leaseConfig);
                                 m_connectionManager.AddConnection(state);
                             }
                             EnqueueResponse(state, response);

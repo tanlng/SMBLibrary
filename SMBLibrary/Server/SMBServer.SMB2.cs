@@ -116,7 +116,7 @@ namespace SMBLibrary.Server
                     SMB2Command response = NegotiateHelper.GetNegotiateResponse(request, m_securityProvider, state, m_transport, m_serverGuid, m_serverStartTime, m_enableSMB3);
                     if (state.Dialect != SMBDialect.NotSet)
                     {
-                        state = new SMB2ConnectionState(state);
+                        state = new SMB2ConnectionState(state, m_leaseConfig);
                         m_connectionManager.AddConnection(state);
                     }
                     return response;

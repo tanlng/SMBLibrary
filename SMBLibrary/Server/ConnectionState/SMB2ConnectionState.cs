@@ -21,9 +21,11 @@ namespace SMBLibrary.Server
         // Key is AsyncID
         private Dictionary<ulong, SMB2AsyncContext> m_pendingRequests = new Dictionary<ulong, SMB2AsyncContext>();
         private ulong m_nextAsyncID = 1;
+        private SMBLibrary.Server.Leasing.LeaseManagerConfiguration m_leaseConfig;
 
-        public SMB2ConnectionState(ConnectionState state) : base(state)
+        public SMB2ConnectionState(ConnectionState state, SMBLibrary.Server.Leasing.LeaseManagerConfiguration leaseConfig = null) : base(state)
         {
+            m_leaseConfig = leaseConfig;
         }
 
         public ulong? AllocateSessionID()
@@ -46,7 +48,7 @@ namespace SMBLibrary.Server
 
         public SMB2Session CreateSession(ulong sessionID, string userName, string machineName, byte[] sessionKey, object accessToken, bool signingRequired, byte[] signingKey)
         {
-            SMB2Session session = new SMB2Session(this, sessionID, userName, machineName, sessionKey, accessToken, signingRequired, signingKey);
+            SMB2Session session = new SMB2Session(this, sessionID, userName, machineName, sessionKey, accessToken, signingRequired, signingKey, m_leaseConfig);
             lock (m_sessions)
             {
                 m_sessions.TryAdd(sessionID, session);
