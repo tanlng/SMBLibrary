@@ -67,7 +67,7 @@ namespace SMBLibrary.Server.Leasing
         }
 
         /// <summary>
-        /// Create new lease
+        /// Create new lease or return existing lease
         /// </summary>
         public LeaseInfo CreateLease(LeaseRequest request)
         {
@@ -78,6 +78,62 @@ namespace SMBLibrary.Server.Leasing
                 throw new LeaseException("Invalid lease request", 
                     request.LeaseKey, LeaseErrorCode.LeaseInvalid);
 
+            // Check if lease already exists
+            if (m_leaseRegistry.TryGetValue(request.LeaseKey, out var existingLease))
+            {
+                // Per MS-SMB2 spec: If lease exists, validate and return it
+                
+                // Check if lease is expired
+                if (existingLease.IsExpired)
+                {
+                    // Try to remove expired lease atomically
+                    // If another thread already removed it, that's fine
+                    if (m_leaseRegistry.TryRemove(request.LeaseKey, out var removedLease))
+                    {
+                        RemoveFromIndexes(removedLease);
+                    }
+                    // Fall through to create new lease below
+                }
+                else if (existingLease.SessionId != request.SessionId)
+                {
+                    // Different session trying to use same lease key - this is an error
+                    throw new LeaseException("Lease already exists in different session", 
+                        request.LeaseKey, LeaseErrorCode.LeaseAlreadyExists);
+                }
+                else
+                {
+                    // Same session, same lease key - return existing lease
+                    // Note: UpdateAccess() is not thread-safe, but the impact is minimal
+                    // (just access tracking, not critical for correctness)
+                    existingLease.UpdateAccess();
+                    
+                    // Add new file to lease tracking if it's a different file
+                    // Use struct comparison to properly compare FileID
+                    bool isDifferentFile = (existingLease.FileId.Persistent != request.FileId.Persistent || 
+                                           existingLease.FileId.Volatile != request.FileId.Volatile);
+                    
+                    if (isDifferentFile)
+                    {
+                        // Per MS-SMB2: A lease can be associated with multiple files
+                        // Add new file to tracking index
+                        m_fileLeases.AddOrUpdate(request.FileId,
+                            new List<Guid> { request.LeaseKey },
+                            (key, existing) => 
+                            {
+                                lock (existing) // Thread-safe list modification
+                                {
+                                    if (!existing.Contains(request.LeaseKey))
+                                        existing.Add(request.LeaseKey);
+                                }
+                                return existing;
+                            });
+                    }
+                    
+                    return existingLease;
+                }
+            }
+
+            // No existing lease or expired - create new lease
             if (m_leaseRegistry.Count >= m_config.MaxLeases)
                 throw new LeaseException("Maximum lease count exceeded", 
                     Guid.Empty, LeaseErrorCode.LeaseResourceExhausted);
@@ -102,8 +158,12 @@ namespace SMBLibrary.Server.Leasing
             };
 
             if (!m_leaseRegistry.TryAdd(leaseInfo.LeaseKey, leaseInfo))
-                throw new LeaseException("Lease already exists", 
-                    leaseInfo.LeaseKey, LeaseErrorCode.LeaseAlreadyExists);
+            {
+                // Race condition: another thread created the lease between our check and add
+                // Recursively call ourselves to handle the existing lease properly
+                // This ensures we go through the same validation logic
+                return CreateLease(request);
+            }
 
             try
             {
