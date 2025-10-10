@@ -15,7 +15,13 @@
 - **兼容性问题**: 客户端连接失败、协议不匹配
 - **安全问题**: 未授权访问、数据泄露
 
-#### 1.2 问题优先级
+#### 1.2 常见错误代码
+- **LeaseInvalid**: 租赁请求无效（通常是 LeaseDuration 验证错误）
+- **LeaseAlreadyExists**: 租赁已存在（不同会话使用相同 LeaseKey）
+- **LeaseNotFound**: 租赁不存在（已过期或被清理）
+- **LeaseExpired**: 租赁已过期
+
+#### 1.3 问题优先级
 - **P0 - 严重**: 系统崩溃、数据丢失
 - **P1 - 高**: 功能完全不可用
 - **P2 - 中**: 功能部分不可用
@@ -322,14 +328,174 @@ public class LeaseBreakTimeoutFixer
 }
 ```
 
-### 3. 内存泄漏
+### 3. LeaseInvalid 错误
 
 #### 3.1 问题症状
+- 客户端请求租赁时收到 `LeaseInvalid` 错误
+- 日志显示 "Invalid lease request"
+- 所有租赁请求都被拒绝
+
+#### 3.2 常见原因
+- **错误验证 LeaseDuration**: 代码错误地验证 `LeaseDuration != 0`
+- **根据 MS-SMB2 规范**: 客户端必须发送 `LeaseDuration = 0`，服务器应忽略此值
+
+#### 3.3 诊断步骤
+```csharp
+public class LeaseInvalidDiagnostic
+{
+    public DiagnosticResult DiagnoseLeaseInvalid(LeaseRequest request)
+    {
+        var result = new DiagnosticResult
+        {
+            ProblemType = "LeaseInvalid",
+            Timestamp = DateTime.UtcNow
+        };
+
+        // 检查 LeaseDuration 验证逻辑
+        if (request.LeaseDuration == 0)
+        {
+            result.Issues.Add(new DiagnosticIssue
+            {
+                Severity = DiagnosticSeverity.High,
+                Category = "InvalidValidation",
+                Description = "LeaseDuration validation incorrectly rejects 0 value",
+                Recommendation = "Remove LeaseDuration validation - client must send 0 per MS-SMB2 spec"
+            });
+        }
+
+        // 检查其他验证
+        if (request.LeaseKey == Guid.Empty)
+        {
+            result.Issues.Add(new DiagnosticIssue
+            {
+                Severity = DiagnosticSeverity.High,
+                Category = "InvalidLeaseKey",
+                Description = "LeaseKey is empty",
+                Recommendation = "Ensure client generates valid GUID for LeaseKey"
+            });
+        }
+
+        if (request.LeaseState == LeaseState.None)
+        {
+            result.Issues.Add(new DiagnosticIssue
+            {
+                Severity = DiagnosticSeverity.High,
+                Category = "InvalidLeaseState",
+                Description = "LeaseState is None",
+                Recommendation = "Client must request valid lease state (ReadCaching, WriteCaching, etc.)"
+            });
+        }
+
+        return result;
+    }
+}
+```
+
+#### 3.4 解决方案
+```csharp
+public class LeaseInvalidFixer
+{
+    public void FixLeaseInvalidValidation()
+    {
+        Console.WriteLine("=== Fixing LeaseInvalid Error ===");
+        Console.WriteLine("1. Remove LeaseDuration validation (client must send 0)");
+        Console.WriteLine("2. Ensure LeaseKey is not empty");
+        Console.WriteLine("3. Ensure LeaseState is not None");
+        Console.WriteLine("4. Update validation logic to match MS-SMB2 spec");
+        
+        // 正确的验证逻辑示例
+        Console.WriteLine("\nCorrect validation logic:");
+        Console.WriteLine("if (context.LeaseKey == Guid.Empty) return false;");
+        Console.WriteLine("if (context.LeaseState == LeaseState.None) return false;");
+        Console.WriteLine("// Note: LeaseDuration validation removed per MS-SMB2 spec");
+    }
+}
+```
+
+### 4. LeaseAlreadyExists 错误
+
+#### 4.1 问题症状
+- 客户端重复请求租赁时收到 `LeaseAlreadyExists` 错误
+- 日志显示 "Lease already exists"
+- 同一会话的重复请求被错误拒绝
+
+#### 4.2 常见原因
+- **错误处理重复请求**: 代码没有正确处理同一会话的重复 LeaseKey
+- **根据 MS-SMB2 规范**: 同一会话可以重用相同的 LeaseKey
+
+#### 4.3 诊断步骤
+```csharp
+public class LeaseAlreadyExistsDiagnostic
+{
+    public DiagnosticResult DiagnoseLeaseAlreadyExists(Guid leaseKey, ulong sessionId)
+    {
+        var result = new DiagnosticResult
+        {
+            ProblemType = "LeaseAlreadyExists",
+            Timestamp = DateTime.UtcNow
+        };
+
+        var leaseManager = GetLeaseManager();
+        var existingLease = leaseManager.GetLeaseInfo(leaseKey);
+
+        if (existingLease != null)
+        {
+            if (existingLease.SessionId == sessionId)
+            {
+                result.Issues.Add(new DiagnosticIssue
+                {
+                    Severity = DiagnosticSeverity.High,
+                    Category = "SameSessionReuse",
+                    Description = "Same session reusing LeaseKey should be allowed",
+                    Recommendation = "Return existing lease instead of throwing exception"
+                });
+            }
+            else
+            {
+                result.Issues.Add(new DiagnosticIssue
+                {
+                    Severity = DiagnosticSeverity.Medium,
+                    Category = "DifferentSession",
+                    Description = "Different session using same LeaseKey",
+                    Recommendation = "This is correct behavior - different sessions cannot share LeaseKey"
+                });
+            }
+        }
+
+        return result;
+    }
+}
+```
+
+#### 4.4 解决方案
+```csharp
+public class LeaseAlreadyExistsFixer
+{
+    public void FixLeaseAlreadyExists()
+    {
+        Console.WriteLine("=== Fixing LeaseAlreadyExists Error ===");
+        Console.WriteLine("1. Check if existing lease belongs to same session");
+        Console.WriteLine("2. If same session, return existing lease");
+        Console.WriteLine("3. If different session, throw exception (correct behavior)");
+        Console.WriteLine("4. Handle expired leases by removing and creating new");
+        
+        Console.WriteLine("\nCorrect handling logic:");
+        Console.WriteLine("if (existingLease.SessionId == request.SessionId)");
+        Console.WriteLine("    return existingLease; // Same session reuse");
+        Console.WriteLine("else");
+        Console.WriteLine("    throw LeaseException; // Different session conflict");
+    }
+}
+```
+
+### 5. 内存泄漏
+
+#### 5.1 问题症状
 - 内存使用持续增长
 - 垃圾回收频繁
 - 系统响应变慢
 
-#### 3.2 诊断步骤
+#### 5.2 诊断步骤
 ```csharp
 public class MemoryLeakDiagnostic
 {

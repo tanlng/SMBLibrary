@@ -284,7 +284,7 @@ public static NTStatus HandleLeaseBreakError(LeaseException ex)
         LeaseErrorCode.LeaseExpired => NTStatus.STATUS_OBJECT_NAME_NOT_FOUND,
         LeaseErrorCode.LeaseInvalid => NTStatus.STATUS_INVALID_PARAMETER,
         LeaseErrorCode.LeaseResourceExhausted => NTStatus.STATUS_INSUFFICIENT_RESOURCES,
-        LeaseErrorCode.LeaseAlreadyExists => NTStatus.STATUS_OBJECT_NAME_COLLISION,
+        LeaseErrorCode.LeaseAlreadyExists => NTStatus.STATUS_OBJECT_NAME_COLLISION, // 仅当不同会话使用相同 LeaseKey 时
         LeaseErrorCode.LeasePermissionDenied => NTStatus.STATUS_ACCESS_DENIED,
         LeaseErrorCode.LeaseBreakInProgress => NTStatus.STATUS_OPLOCK_BREAK_IN_PROGRESS,
         _ => NTStatus.STATUS_UNSUCCESSFUL

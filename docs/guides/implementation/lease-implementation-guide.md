@@ -588,11 +588,9 @@ namespace SMBLibrary.Server.Leasing
                 return false;
             }
 
-            // 验证租赁持续时间
-            if (context.LeaseDuration == 0)
-            {
-                return false;
-            }
+            // 注意：根据 MS-SMB2 规范，客户端必须发送 LeaseDuration = 0
+            // 服务器应该忽略客户端发送的值，使用自己的默认持续时间
+            // 因此这里不验证 LeaseDuration
 
             return true;
         }
