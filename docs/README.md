@@ -40,6 +40,7 @@ docs/
 │   └── smb2/
 │       ├── file-id-persistent-volatile.md ⭐
 │       ├── file-index-number-explained.md ⭐
+│       ├── rqls-lease-context-explained.md ⭐
 │       ├── smb2-create-contexts.md
 │       ├── smb2-negotiate-capabilities.md
 │       ├── smb2-lease-protocol.md
@@ -63,7 +64,7 @@ docs/
     └── lease-security-considerations.md
 ```
 
-**总计**: 20 个文档
+**总计**: 21 个文档
 
 ---
 
@@ -80,6 +81,7 @@ docs/
 ### 协议规范
 - **[FileID: Persistent 和 Volatile](protocols/smb2/file-id-persistent-volatile.md)** ⭐ - FileID 实现指南
 - **[IndexNumber 详解](protocols/smb2/file-index-number-explained.md)** ⭐ - 文件索引号（类似 Unix inode）
+- **[RqLs 租约上下文详解](protocols/smb2/rqls-lease-context-explained.md)** ⭐ - RqLs 工作机制和实现
 - **[SMB2 Create Contexts](protocols/smb2/smb2-create-contexts.md)** - Create Contexts 协议
 - **[SMB2 Negotiate Capabilities](protocols/smb2/smb2-negotiate-capabilities.md)** - 协商能力
 - **[SMB2 Lease Protocol](protocols/smb2/smb2-lease-protocol.md)** - 租赁协议

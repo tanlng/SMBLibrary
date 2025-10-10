@@ -123,33 +123,56 @@ public static void AddQFidContext(FileID fileID, CreateResponse response)
 }
 ```
 
-### 3. RqLs (Request Lease) - 请求租赁
+### 3. RqLs (Request Lease) - 租约上下文
 
 **名称**: `"RqLs"`  
 **长度**: 32 字节 (V1) 或 52 字节 (V2)  
 **版本**: SMB 2.1+ (V1), SMB 3.0+ (V2)
 
 #### 用途
-客户端请求文件租赁，服务器授予租赁并返回租赁信息。
+用于租约（Lease）协商的 Create 上下文。租约是客户端缓存机制，允许客户端本地缓存文件数据。
+
+#### ⚠️ 重要概念
+
+**RqLs 不是独立的请求命令，而是 CREATE 请求/响应中的上下文。**
+
+- ✅ 客户端**可以**在 CREATE Request 中包含 RqLs 来**请求**租约
+- ✅ 服务器**也可以**主动在 CREATE Response 中返回 RqLs，**即使客户端没有请求**
+- ✅ 服务器根据文件状态、访问模式等**自主决定**是否授予租约
+- ✅ 服务器可以降级或拒绝客户端的租约请求
+
+> **租约的授予是服务器的自主决定，不依赖于客户端是否发送 RqLs 请求。**
 
 #### 数据结构（V1）
 ```
 struct RqLs_V1 {
-    Guid   LeaseKey;        // 租赁键（16字节）
-    uint   LeaseState;      // 租赁状态
-    uint   LeaseFlags;      // 租赁标志
-    ulong  LeaseDuration;   // 租赁持续时间
+    Guid   LeaseKey;        // 租约键（16字节）
+    uint   LeaseState;      // 租约状态（位标志）
+    uint   LeaseFlags;      // 租约标志
+    ulong  LeaseDuration;   // 租约持续时间（通常为 0）
 }
 ```
 
+#### 租约状态（LeaseState）
+
+| 位标志 | 值 | 说明 |
+|--------|----|----|
+| `SMB2_LEASE_NONE` | 0x00 | 无租约 |
+| `SMB2_LEASE_READ_CACHING` | 0x01 | 读取缓存 |
+| `SMB2_LEASE_HANDLE_CACHING` | 0x02 | 句柄缓存 |
+| `SMB2_LEASE_WRITE_CACHING` | 0x04 | 写入缓存 |
+
+常见组合：`R`(0x01), `RH`(0x03), `RW`(0x05), `RWH`(0x07)
+
 #### 必要性
-- ✅✅ **极高**: 租赁协议的核心，必须正确实现才能支持租赁
-- ✅ 直接影响客户端缓存性能
-- ✅ 减少网络往返，提高文件访问速度
-- ❌ 如果请求了但不返回，客户端可能认为服务器有问题
+- ✅✅ **极高**: 租赁协议的核心，对性能影响显著
+- ✅ 减少网络往返，提高文件访问速度（30-70% 性能提升）
+- ✅ 支持客户端本地缓存
+- ⚠️ 服务器可以选择不实现（返回 OplockLevel=None）
 
 #### 实现
-参见：[租赁上下文处理器 API](../../api/server/leasing/lease-context-handler-api.md)
+详细说明：[RqLs 租约上下文详解](rqls-lease-context-explained.md)  
+API 文档：[租赁上下文处理器 API](../../api/server/leasing/lease-context-handler-api.md)
 
 ### 4. DHnQ (Durable Handle Request) - 持久句柄请求
 
