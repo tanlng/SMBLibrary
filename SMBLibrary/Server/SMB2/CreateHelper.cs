@@ -48,7 +48,7 @@ namespace SMBLibrary.Server.SMB2
             }
 
             FileAccess fileAccess = NTFileStoreHelper.ToFileAccess(desiredAccess);
-            FileID? fileID = session.AddOpenFile(request.Header.TreeID, share.Name, path, handle, fileAccess);
+            FileID? fileID = session.AddOpenFile(request.Header.TreeID, share, path, handle, fileAccess);
             if (fileID == null)
             {
                 share.FileStore.CloseFile(handle);
@@ -67,52 +67,12 @@ namespace SMBLibrary.Server.SMB2
             {
                 FileNetworkOpenInformation fileInfo = NTFileStoreHelper.GetNetworkOpenInformation(share.FileStore, handle);
                 CreateResponse response = CreateResponseFromFileSystemEntry(fileInfo, fileID.Value, fileStatus);
-                //var extraInfosKeys = request.CreateContexts.Select(c => c.Name).ToArray();
-                //if (extraInfosKeys.Any(k => k == "MxAc"))
-                //{
-                //    AddMxAcContext(response);
-                //}
-
-                ////if (handle is FileHandle fileHandle && !fileHandle.IsDirectory)
-                ////{
-                //switch (request.RequestedOplockLevel)
-                //{
-                //    case OplockLevel.Batch:
-                //        break;
-                //    case OplockLevel.Lease:
-                //        response.OplockLevel = OplockLevel.Lease;
-                //        if (extraInfosKeys.Any(k => k == "RqLs"))
-                //        {
-                //            AddRlContext(request.CreateContexts.First(c => c.Name == "RqLs"), response);
-                //        }
-                //        else
-                //        {
-                //            AddRlContext(new CreateContext()
-                //            {
-                //                Name = "RqLs",
-                //                Data = new LeaseV2CreateContextData()
-                //                {
-                //                    LeaseKey = Guid.NewGuid(),
-                //                    LeaseState = 0x00000007,
-                //                    LeaseFlags = 0x00000000,
-                //                    LeaseDuration = 0x0000000000000000,
-                //                    ParentLeaseKey = Guid.Empty,
-                //                    LeaseEpoch = 0x0001,
-                //                    LeaseReserved = 0x0000
-                //                }.ToBuffer(),
-                //                Next = 0
-                //            }, response);
-                //        }
-                //        break;
-                //    default:
-                //        break;
-                //}
-                ////}
-
-                //if (extraInfosKeys.Any(k => k == "QFid"))
-                //{
-                //    AddQFidContext(fileID.Value, response);
-                //}
+                
+                // Process Create Contexts
+                if (request.CreateContexts != null && request.CreateContexts.Count > 0)
+                {
+                    ProcessCreateContexts(request, response, share, session, handle, fileID.Value, path, state);
+                }
                 return response;
             }
         }
@@ -203,26 +163,6 @@ namespace SMBLibrary.Server.SMB2
             return response;
         }
 
-        public static void AddMxAcContext(CreateResponse response)
-        {
-            // 添加最大访问权限上下文（MxAc）
-            uint queryStatus = 0x00000000; // STATUS_SUCCESS
-            AccessMask accessMask = (AccessMask)0x001f01ff; // 按报文设置访问掩码
-
-            byte[] mxAcData = new byte[8];
-            LittleEndianWriter.WriteUInt32(mxAcData, 0, queryStatus);
-            LittleEndianWriter.WriteUInt32(mxAcData, 4, (uint)accessMask);
-
-            var mxAcContext = new CreateContext
-            {
-                Name = "MxAc",                // 4字节标签
-                Data = mxAcData,              // 8字节数据（状态+掩码）
-                Next = 0                      // 假设后续处理链式结构时自动设置，或由WriteCreateContextList处理
-            };
-            response.CreateContexts.Add(mxAcContext);
-        }
-
-
         /// <summary>
         ///  猜测这个和Oplock机制有关
         /// </summary>
@@ -241,19 +181,156 @@ namespace SMBLibrary.Server.SMB2
             response.CreateContexts.Add(qfidContext);
         }
 
-        public static void AddRlContext(CreateContext rlRequest, CreateResponse response)
+
+        private static void ProcessCreateContexts(
+            CreateRequest request,
+            CreateResponse response,
+            ISMBShare share,
+            SMB2Session session,
+            object handle,
+            FileID fileID,
+            string path,
+            SMB2ConnectionState state)
         {
-            var rqlsContext = LeaseV2CreateContextData.BufferToLeaseV2CreateContextData(rlRequest.Data);
-            if (rqlsContext.LeaseEpoch < 0x0001)
+            foreach (var context in request.CreateContexts)
             {
-                rqlsContext.LeaseEpoch = 0x0001;
+                try
+                {
+                    switch (context.Name)
+                    {
+                        case "MxAc":
+                            ProcessMxAcContext(response, share, session, handle, path, state);
+                            break;
+                            
+                        case "QFid":
+                            ProcessQFidContext(response, fileID, state);
+                            break;
+                            
+                        case "RqLs":
+                            ProcessLeaseContext(context, response, session, fileID, path, request.Header.SessionID, state);
+                            break;
+                            
+                        default:
+                            state.LogToServer(Severity.Trace, "Unknown create context: {0} (ignored)", context.Name);
+                            break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    state.LogToServer(Severity.Warning, "Error processing context '{0}': {1}", context.Name, ex.Message);
+                }
             }
-            response.CreateContexts.Add(new CreateContext()
+            
+            if (response.CreateContexts.Count > 0)
             {
-                Name = "RqLs",
-                Data = rqlsContext.ToBuffer(),
-                Next = 0
+                state.LogToServer(Severity.Debug, "Create response contexts: {0}", 
+                    string.Join(", ", response.CreateContexts.Select(c => c.Name)));
+            }
+        }
+
+        private static void ProcessMxAcContext(
+            CreateResponse response,
+            ISMBShare share,
+            SMB2Session session,
+            object handle,
+            string path,
+            SMB2ConnectionState state)
+        {
+            AccessMask maximalAccess = 0;
+            NTStatus status = NTStatus.STATUS_SUCCESS;
+            
+            // Calculate maximal access based on share-level permissions
+            // Users define permissions via FileSystemShare.AccessRequested event
+            if (share is FileSystemShare fileSystemShare)
+            {
+                bool hasReadAccess = fileSystemShare.HasReadAccess(session.SecurityContext, path);
+                bool hasWriteAccess = fileSystemShare.HasWriteAccess(session.SecurityContext, path);
+                
+                maximalAccess = StandardAccessMasks.Build(
+                    canRead: hasReadAccess,
+                    canWrite: hasWriteAccess,
+                    canDelete: hasWriteAccess,
+                    canExecute: hasReadAccess);
+                
+                state.LogToServer(Severity.Debug, 
+                    "MxAc: User '{0}', Path '{1}', Read: {2}, Write: {3}, Access: 0x{4:X8}",
+                    session.UserName, path, hasReadAccess, hasWriteAccess, (uint)maximalAccess);
+            }
+            else
+            {
+                // For non-FileSystemShare types, return full control
+                // Users should use FileSystemShare with AccessRequested event for custom permissions
+                maximalAccess = StandardAccessMasks.FullControl;
+                
+                state.LogToServer(Severity.Debug, 
+                    "MxAc for {0}: Returning FullControl (0x{1:X8})",
+                    share.GetType().Name, (uint)maximalAccess);
+            }
+            
+            // Create MxAc response (8 bytes: 4 bytes status + 4 bytes access mask)
+            byte[] mxAcData = new byte[8];
+            LittleEndianWriter.WriteUInt32(mxAcData, 0, (uint)status);
+            LittleEndianWriter.WriteUInt32(mxAcData, 4, (uint)maximalAccess);
+            
+            response.CreateContexts.Add(new CreateContext
+            {
+                Name = "MxAc",
+                Data = mxAcData
             });
+        }
+
+        private static void ProcessQFidContext(
+            CreateResponse response,
+            FileID fileID,
+            SMB2ConnectionState state)
+        {
+            AddQFidContext(fileID, response);
+            state.LogToServer(Severity.Debug, "QFid context added");
+        }
+
+        private static void ProcessLeaseContext(
+            CreateContext requestContext,
+            CreateResponse response,
+            SMB2Session session,
+            FileID fileID,
+            string path,
+            ulong sessionID,
+            SMB2ConnectionState state)
+        {
+            // Check if session supports leasing
+            if (!session.SupportsLeasing)
+            {
+                state.LogToServer(Severity.Debug, "Lease requested but leasing is not enabled");
+                return;
+            }
+            
+            try
+            {
+                var leaseContext = session.LeaseContextHandler.ProcessCreateContext(
+                    requestContext,
+                    sessionID,
+                    fileID,
+                    path);
+                    
+                if (leaseContext != null)
+                {
+                    response.CreateContexts.Add(leaseContext);
+                    response.OplockLevel = OplockLevel.Lease;
+                    
+                    state.LogToServer(Severity.Information, 
+                        "Lease granted for file: {0}, LeaseKey: {1}", 
+                        path, ((SMBLibrary.SMB2.LeaseContext)leaseContext).LeaseKey);
+                }
+            }
+            catch (SMBLibrary.Server.Leasing.LeaseException ex)
+            {
+                state.LogToServer(Severity.Warning, "Lease request failed: {0}, ErrorCode: {1}", 
+                    ex.Message, ex.ErrorCode);
+            }
+            catch (Exception ex)
+            {
+                state.LogToServer(Severity.Error, "Unexpected error processing lease context: {0}", ex.Message);
+            }
         }
     }
 }

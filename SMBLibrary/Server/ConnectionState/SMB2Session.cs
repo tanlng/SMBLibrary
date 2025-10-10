@@ -7,6 +7,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using SMBLibrary.SMB2;
 using SMBLibrary.Server.Leasing;
@@ -41,6 +42,16 @@ namespace SMBLibrary.Server
         private LeaseManager m_leaseManager;
         private LeaseContextHandler m_leaseContextHandler;
         private LeaseBreakHandler m_leaseBreakHandler;
+
+        /// <summary>
+        /// Indicates whether this session supports leasing
+        /// </summary>
+        public bool SupportsLeasing => m_leaseManager != null;
+
+        /// <summary>
+        /// Gets the lease context handler (null if leasing is disabled)
+        /// </summary>
+        public LeaseContextHandler LeaseContextHandler => m_leaseContextHandler;
 
         public SMB2Session(SMB2ConnectionState connection, ulong sessionID, string userName, string machineName, byte[] sessionKey, object accessToken, bool signingRequired, byte[] signingKey, LeaseManagerConfiguration leaseConfig = null)
         {
@@ -289,7 +300,7 @@ namespace SMBLibrary.Server
             return null;
         }
 
-        public FileID? AddOpenFile(uint treeID, string shareName, string relativePath, object handle, FileAccess fileAccess)
+        public FileID? AddOpenFile(uint treeID, ISMBShare share, string relativePath, object handle, FileAccess fileAccess)
         {
             lock (m_openFiles)
             {
@@ -298,17 +309,53 @@ namespace SMBLibrary.Server
                 {
                     FileID fileID = new FileID();
                     fileID.Volatile = volatileFileID.Value;
-                    // [MS-SMB2] FileId.Persistent MUST be set to Open.DurableFileId.
-                    // Note: We don't support durable handles so we use volatileFileID.
-                    fileID.Persistent = CacheHelper.TryGet<ulong>($"fileID_{shareName}/{relativePath}", () =>
-                    {
-                        return volatileFileID.Value;
-                    }, 5);
-                    m_openFiles.Add(volatileFileID.Value, new OpenFileObject(treeID, shareName, relativePath, handle, fileAccess));
+                    
+                    // [MS-SMB2] FileId.Persistent MUST be set to Open.DurableFileId for durable handles.
+                    // For non-durable handles, we use the file's unique identifier from the file system.
+                    fileID.Persistent = GetPersistentFileID(share, handle, volatileFileID.Value);
+                    
+                    m_openFiles.Add(volatileFileID.Value, new OpenFileObject(treeID, share.Name, relativePath, handle, fileAccess));
                     return fileID;
                 }
             }
             return null;
+        }
+        
+        /// <summary>
+        /// Get persistent file ID for the handle.
+        /// This should return a stable identifier for the file that doesn't change on rename or append,
+        /// but does change when the file is replaced/overwritten.
+        /// Uses FileInternalInformation.IndexNumber from the file system.
+        /// </summary>
+        private ulong GetPersistentFileID(ISMBShare share, object handle, ulong volatileFileID)
+        {
+            try
+            {
+                // Try to get FileInternalInformation from the file store
+                FileInformation fileInfo;
+                NTStatus status = share.FileStore.GetFileInformation(
+                    out fileInfo, 
+                    handle, 
+                    FileInformationClass.FileInternalInformation);
+                
+                if (status == NTStatus.STATUS_SUCCESS && fileInfo is FileInternalInformation internalInfo)
+                {
+                    ulong indexNumber = (ulong)internalInfo.IndexNumber;
+                    
+                    // Ensure it's not a reserved value
+                    if (indexNumber != 0 && indexNumber != 0xFFFFFFFFFFFFFFFF)
+                    {
+                        return indexNumber;
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore errors and fall back to volatile
+            }
+            
+            // Fallback: use Volatile as Persistent
+            return volatileFileID;
         }
 
         public OpenFileObject GetOpenFileObject(FileID fileID)
