@@ -73,6 +73,17 @@ namespace SMBLibrary.Server.SMB2
                 {
                     ProcessCreateContexts(request, response, share, session, handle, fileID.Value, path, state);
                 }
+                
+                // Check if server should proactively grant a lease (even if client didn't request)
+                // Only if: 1) Client didn't request a lease, 2) Session supports leasing, 3) No lease was already granted
+                bool clientRequestedLease = request.CreateContexts?.Any(c => c.Name == "RqLs") ?? false;
+                bool leaseAlreadyGranted = response.OplockLevel == OplockLevel.Lease;
+                
+                if (!clientRequestedLease && !leaseAlreadyGranted && session.SupportsLeasing)
+                {
+                    TryProactivelyGrantLease(response, session, fileID.Value, path, fileAccess, request.Header.SessionID, state);
+                }
+                
                 return response;
             }
         }
@@ -127,24 +138,23 @@ namespace SMBLibrary.Server.SMB2
             return response;
         }
         /// <summary>
-        /// 将ulong值转换为符合SMB2 QFid上下文要求的32字节不透明文件ID（小端字节序，前8字节为ulong值，剩余24字节补零）
+        /// Convert ulong value to 32-byte opaque file ID for SMB2 QFid context (little-endian, first 8 bytes from value, remaining 24 bytes zero-padded).
         /// </summary>
-        /// <param name="value">需要转换的ulong值（将作为文件ID的前8字节）</param>
-        /// <returns>32字节的Opaque File ID字节数组（小端序，前8字节为输入值，后24字节补零）</returns>
+        /// <param name="value">The ulong value to convert (will be written to the first 8 bytes)</param>
+        /// <returns>32-byte opaque file ID byte array (little-endian, first 8 bytes from input, last 24 bytes zero)</returns>
         public static byte[] ConvertUlongTo32ByteOpaqueFileId(ulong value)
         {
-            byte[] opaqueFileId = new byte[32]; // 初始化32字节数组（默认值为0，无需手动清零剩余字节）
+            byte[] opaqueFileId = new byte[32]; // Initialize 32-byte array (default zeros)
 
-            // 获取ulong的小端字节（BitConverter在小端系统返回小端序，大端系统返回大端序，需根据SMB2规范调整）
-            // SMB2使用小端序，因此无论系统如何，强制转换为小端字节
+            // Get little-endian bytes (SMB2 requires little-endian)
             byte[] valueBytes = BitConverter.IsLittleEndian ?
-                BitConverter.GetBytes(value) : // 小端系统直接获取小端字节
-                BitConverter.GetBytes(value).Reverse().ToArray(); // 大端系统反转字节
+                BitConverter.GetBytes(value) : // Little-endian system
+                BitConverter.GetBytes(value).Reverse().ToArray(); // Big-endian system, reverse bytes
 
-            // 写入前8字节（确保只写入有效长度，处理ulong的8字节）
-            valueBytes.CopyTo(opaqueFileId, 0); // 等效于Array.Copy(valueBytes, opaqueFileId, 8)
+            // Write first 8 bytes
+            valueBytes.CopyTo(opaqueFileId, 0);
 
-            // 无需显式填充剩余24字节，数组初始化时已为0
+            // Remaining 24 bytes are already zero from array initialization
 
             return opaqueFileId;
         }
@@ -164,19 +174,21 @@ namespace SMBLibrary.Server.SMB2
         }
 
         /// <summary>
-        ///  猜测这个和Oplock机制有关
+        /// Add QFid (Query File ID) context to Create response.
+        /// Returns the file's unique identifier for client caching and tracking.
+        /// Note: QFid is independent of Oplock/Lease mechanisms and does not affect OplockLevel.
         /// </summary>
-        /// <param name="fileID"></param>
-        /// <param name="response"></param>
+        /// <param name="fileID">File ID containing Persistent and Volatile parts</param>
+        /// <param name="response">Create response to add the context to</param>
         public static void AddQFidContext(FileID fileID, CreateResponse response)
         {
-            // 添加磁盘文件ID上下文（QFid）
-            byte[] opaqueFileId = ConvertUlongTo32ByteOpaqueFileId(fileID.Persistent); // 获取32字节文件ID（需确保长度正确）
+            // Convert FileID.Persistent to 32-byte opaque file ID for QFid context
+            byte[] opaqueFileId = ConvertUlongTo32ByteOpaqueFileId(fileID.Persistent);
             var qfidContext = new CreateContext
             {
-                Name = "QFid",                // 4字节标签
-                Data = opaqueFileId,          // 32字节数据
-                Next = 0                      // 最后一个元素时Next=0，或由链式处理设置
+                Name = "QFid",
+                Data = opaqueFileId,
+                Next = 0
             };
             response.CreateContexts.Add(qfidContext);
         }
@@ -306,20 +318,38 @@ namespace SMBLibrary.Server.SMB2
             
             try
             {
-                var leaseContext = session.LeaseContextHandler.ProcessCreateContext(
-                    requestContext,
+                // Parse lease request from CreateContext.Data
+                LeaseContext leaseRequest = ParseLeaseContextFromData(requestContext);
+                
+                if (leaseRequest == null)
+                {
+                    state.LogToServer(Severity.Warning, "Failed to parse RqLs context data");
+                    return;
+                }
+                
+                state.LogToServer(Severity.Debug, 
+                    "Lease request: Key={0}, State={1}, Flags={2}", 
+                    leaseRequest.LeaseKey, leaseRequest.LeaseState, leaseRequest.LeaseFlags);
+                
+                // Process lease request through LeaseContextHandler
+                var leaseResponse = session.LeaseContextHandler.ProcessCreateContext(
+                    leaseRequest,
                     sessionID,
                     fileID,
                     path);
                     
-                if (leaseContext != null)
+                if (leaseResponse != null)
                 {
-                    response.CreateContexts.Add(leaseContext);
+                    response.CreateContexts.Add(leaseResponse);
                     response.OplockLevel = OplockLevel.Lease;
                     
                     state.LogToServer(Severity.Information, 
-                        "Lease granted for file: {0}, LeaseKey: {1}", 
-                        path, ((SMBLibrary.SMB2.LeaseContext)leaseContext).LeaseKey);
+                        "Lease granted: File='{0}', Key={1}, State={2}", 
+                        path, leaseResponse.LeaseKey, leaseResponse.LeaseState);
+                }
+                else
+                {
+                    state.LogToServer(Severity.Debug, "Lease not granted for file: {0}", path);
                 }
             }
             catch (SMBLibrary.Server.Leasing.LeaseException ex)
@@ -330,6 +360,139 @@ namespace SMBLibrary.Server.SMB2
             catch (Exception ex)
             {
                 state.LogToServer(Severity.Error, "Unexpected error processing lease context: {0}", ex.Message);
+            }
+        }
+        
+        /// <summary>
+        /// Try to proactively grant a lease (when client didn't request one)
+        /// </summary>
+        private static void TryProactivelyGrantLease(
+            CreateResponse response,
+            SMB2Session session,
+            FileID fileID,
+            string path,
+            FileAccess fileAccess,
+            ulong sessionID,
+            SMB2ConnectionState state)
+        {
+            try
+            {
+                // Evaluate if proactive lease grant is appropriate
+                LeaseState grantedState = EvaluateProactiveLeaseGrant(fileAccess, path);
+                
+                if (grantedState == LeaseState.None)
+                {
+                    // No lease to grant
+                    return;
+                }
+                
+                // Generate a new lease key (server-generated)
+                Guid leaseKey = Guid.NewGuid();
+                
+                state.LogToServer(Severity.Debug, 
+                    "Proactively granting lease: File='{0}', Key={1}, State={2}", 
+                    path, leaseKey, grantedState);
+                
+                // Create lease request for LeaseManager
+                var leaseRequest = new LeaseContext(
+                    leaseKey,
+                    grantedState,
+                    LeaseFlags.None,
+                    0 // LeaseDuration is typically 0 for SMB2
+                );
+                
+                // Process through LeaseContextHandler
+                var leaseResponse = session.LeaseContextHandler.ProcessCreateContext(
+                    leaseRequest,
+                    sessionID,
+                    fileID,
+                    path);
+                
+                if (leaseResponse != null)
+                {
+                    response.CreateContexts.Add(leaseResponse);
+                    response.OplockLevel = OplockLevel.Lease;
+                    
+                    state.LogToServer(Severity.Information, 
+                        "Proactive lease granted: File='{0}', Key={1}, State={2}", 
+                        path, leaseResponse.LeaseKey, leaseResponse.LeaseState);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log but don't fail the Create operation
+                state.LogToServer(Severity.Debug, 
+                    "Failed to proactively grant lease for '{0}': {1}", path, ex.Message);
+            }
+        }
+        
+        /// <summary>
+        /// Evaluate whether to proactively grant a lease and what lease state to grant
+        /// </summary>
+        private static LeaseState EvaluateProactiveLeaseGrant(FileAccess fileAccess, string path)
+        {
+            // Simple heuristic: Grant read lease for read-only access
+            // Grant read+handle lease for read-write access
+            // This is a conservative approach - can be made more sophisticated
+            
+            bool hasRead = (fileAccess & FileAccess.Read) != 0;
+            bool hasWrite = (fileAccess & FileAccess.Write) != 0;
+            
+            if (hasRead && hasWrite)
+            {
+                // Read-write access: grant RH (read + handle caching)
+                // We don't grant write caching proactively as it's more aggressive
+                return LeaseState.ReadCaching | LeaseState.HandleCaching;
+            }
+            else if (hasRead)
+            {
+                // Read-only access: grant R (read caching)
+                return LeaseState.ReadCaching;
+            }
+            else
+            {
+                // No read/write access (e.g., delete, attributes only): no lease
+                return LeaseState.None;
+            }
+        }
+        
+        /// <summary>
+        /// Parse LeaseContext from CreateContext.Data
+        /// </summary>
+        private static LeaseContext ParseLeaseContextFromData(CreateContext context)
+        {
+            if (context == null || context.Data == null || context.Data.Length < 32)
+            {
+                return null;
+            }
+            
+            try
+            {
+                // LeaseContext expects Data to contain the 32-byte lease structure
+                // Create a temporary LeaseContext and let it parse the data
+                var leaseContext = new LeaseContext();
+                leaseContext.Name = context.Name;
+                leaseContext.Data = context.Data;
+                
+                // Parse the lease data (LeaseContext will parse from Data field)
+                // Use reflection or create a new instance with proper parsing
+                if (context.Data.Length >= 32)
+                {
+                    int offset = 0;
+                    leaseContext.LeaseKey = LittleEndianConverter.ToGuid(context.Data, offset);
+                    offset += 16;
+                    leaseContext.LeaseState = (LeaseState)LittleEndianConverter.ToUInt32(context.Data, offset);
+                    offset += 4;
+                    leaseContext.LeaseFlags = (LeaseFlags)LittleEndianConverter.ToUInt32(context.Data, offset);
+                    offset += 4;
+                    leaseContext.LeaseDuration = LittleEndianConverter.ToUInt64(context.Data, offset);
+                }
+                
+                return leaseContext;
+            }
+            catch (Exception)
+            {
+                return null;
             }
         }
     }
