@@ -82,13 +82,18 @@ namespace SMBLibrary.Server.Leasing
                 throw new LeaseException("Maximum lease count exceeded", 
                     Guid.Empty, LeaseErrorCode.LeaseResourceExhausted);
 
+            // Use default lease duration if client sends 0 (per MS-SMB2 spec)
+            TimeSpan effectiveDuration = request.LeaseDuration > TimeSpan.Zero 
+                ? request.LeaseDuration 
+                : m_config.DefaultLeaseDuration;
+
             var leaseInfo = new LeaseInfo
             {
                 LeaseKey = request.LeaseKey,
                 State = request.LeaseState,
                 Flags = request.LeaseFlags,
                 CreatedTime = DateTime.UtcNow,
-                ExpirationTime = DateTime.UtcNow.Add(request.LeaseDuration),
+                ExpirationTime = DateTime.UtcNow.Add(effectiveDuration),
                 SessionId = request.SessionId,
                 FileId = request.FileId,
                 FilePath = request.FilePath,

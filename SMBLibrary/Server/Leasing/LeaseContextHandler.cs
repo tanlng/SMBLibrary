@@ -88,9 +88,8 @@ namespace SMBLibrary.Server.Leasing
             if (context.LeaseState == LeaseState.None)
                 return false;
 
-            // Validate lease duration
-            if (context.LeaseDuration == 0)
-                return false;
+            // Note: LeaseDuration is ignored per MS-SMB2 spec
+            // Client must set LeaseDuration to 0, server determines actual duration
 
             return true;
         }

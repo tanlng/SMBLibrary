@@ -74,9 +74,10 @@ namespace SMBLibrary.Server.Leasing
         /// </summary>
         public bool IsValid()
         {
+            // Note: LeaseDuration is not validated here per MS-SMB2 spec
+            // Client sends LeaseDuration as 0, server determines actual duration
             return LeaseKey != Guid.Empty &&
                    LeaseState != LeaseState.None &&
-                   LeaseDuration > TimeSpan.Zero &&
                    !string.IsNullOrEmpty(FilePath) &&
                    SessionId != 0;
         }

@@ -68,67 +68,14 @@ namespace SMBLibrary.Server.SMB2
                 FileNetworkOpenInformation fileInfo = NTFileStoreHelper.GetNetworkOpenInformation(share.FileStore, handle);
                 CreateResponse response = CreateResponseFromFileSystemEntry(fileInfo, fileID.Value, fileStatus);
                 
-                // Process Create Contexts
-                if (request.CreateContexts != null && request.CreateContexts.Count > 0)
-                {
-                    ProcessCreateContexts(request, response, share, session, handle, fileID.Value, path, state);
-                }
-                
-                // Check if server should proactively grant a lease (even if client didn't request)
-                // Only if: 1) Client didn't request a lease, 2) Session supports leasing, 3) No lease was already granted
-                bool clientRequestedLease = request.CreateContexts?.Any(c => c.Name == "RqLs") ?? false;
-                bool leaseAlreadyGranted = response.OplockLevel == OplockLevel.Lease;
-                
-                if (!clientRequestedLease && !leaseAlreadyGranted && session.SupportsLeasing)
-                {
-                    TryProactivelyGrantLease(response, session, fileID.Value, path, fileAccess, request.Header.SessionID, state);
-                }
+                // Process Create Contexts (always call, even if request has no contexts)
+                // This ensures consistent handling of contexts and proactive lease grants
+                ProcessCreateContexts(request, response, share, session, handle, fileID.Value, path, fileAccess, state);
                 
                 return response;
             }
         }
 
-        // 从 request.CreateContexts 提取信息或生成租赁密钥
-        private static uint GenerateLeaseKey(CreateRequest request)
-        {
-            // 从 CreateContexts 中提取 "LeaseKey" (示例)
-            var leaseKeyContext = request.CreateContexts.FirstOrDefault(c => c.Name == "LeaseKey");
-            if (leaseKeyContext != null)
-            {
-                return BitConverter.ToUInt32(leaseKeyContext.Data, 0);
-            }
-
-            // 如果未找到，生成默认值
-            return (uint)new Random().Next(0, int.MaxValue);
-        }
-
-        // 动态生成租赁状态
-        private static ulong GenerateLeaseState(CreateRequest request)
-        {
-            // 示例：根据请求路径生成状态的哈希值
-            return (ulong)request.Name.GetHashCode();
-        }
-
-        // 动态生成租赁序列号
-        private static uint GenerateLeaseSequenceNumber(CreateRequest request)
-        {
-            // 示例：使用随机数生成
-            return (uint)new Random().Next(1, 1000);
-        }
-
-        // 动态生成持久句柄 ID
-        private static uint GenerateDurableHandleId(CreateRequest request)
-        {
-            // 示例：根据租赁密钥生成
-            return (uint)GenerateLeaseKey(request) ^ 0x87654321; // XOR 操作
-        }
-
-        // 动态生成持久 GUID
-        private static Guid GenerateDurableGuid(CreateRequest request)
-        {
-            // 示例：动态生成新 GUID
-            return Guid.NewGuid();
-        }
         private static CreateResponse CreateResponseForNamedPipe(FileID fileID, FileStatus fileStatus)
         {
             CreateResponse response = new CreateResponse();
@@ -202,37 +149,45 @@ namespace SMBLibrary.Server.SMB2
             object handle,
             FileID fileID,
             string path,
+            FileAccess fileAccess,
             SMB2ConnectionState state)
         {
-            foreach (var context in request.CreateContexts)
+            // Process client-requested contexts
+            // Based on Wireshark analysis: Client sends BOTH RequestedOplockLevel=Lease AND RqLs context
+            if (request.CreateContexts != null && request.CreateContexts.Count > 0)
             {
-                try
+                foreach (var context in request.CreateContexts)
                 {
-                    switch (context.Name)
+                    try
                     {
-                        case "MxAc":
-                            ProcessMxAcContext(response, share, session, handle, path, state);
-                            break;
-                            
-                        case "QFid":
-                            ProcessQFidContext(response, fileID, state);
-                            break;
-                            
-                        case "RqLs":
-                            ProcessLeaseContext(context, response, session, fileID, path, request.Header.SessionID, state);
-                            break;
-                            
-                        default:
-                            state.LogToServer(Severity.Trace, "Unknown create context: {0} (ignored)", context.Name);
-                            break;
+                        switch (context.Name)
+                        {
+                            case "MxAc":
+                                ProcessMxAcContext(response, share, session, handle, path, state);
+                                break;
+                                
+                            case "QFid":
+                                ProcessQFidContext(response, fileID, state);
+                                break;
+                                
+                            case "RqLs":
+                                // Client sends RqLs context with lease request (verified by Wireshark)
+                                ProcessLeaseContext(context, response, session, fileID, path, request.Header.SessionID, state);
+                                break;
+                                
+                            default:
+                                state.LogToServer(Severity.Trace, "Unknown create context: {0} (ignored)", context.Name);
+                                break;
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    state.LogToServer(Severity.Warning, "Error processing context '{0}': {1}", context.Name, ex.Message);
+                    catch (Exception ex)
+                    {
+                        state.LogToServer(Severity.Warning, "Error processing context '{0}': {1}", context.Name, ex.Message);
+                    }
                 }
             }
             
+            // Log response contexts
             if (response.CreateContexts.Count > 0)
             {
                 state.LogToServer(Severity.Debug, "Create response contexts: {0}", 
@@ -300,6 +255,11 @@ namespace SMBLibrary.Server.SMB2
             state.LogToServer(Severity.Debug, "QFid context added");
         }
 
+        /// <summary>
+        /// Process lease request from client (RqLs context in CreateRequest).
+        /// Client sends RqLs with LeaseKey, LeaseState, etc.
+        /// Server evaluates and returns RqLs response.
+        /// </summary>
         private static void ProcessLeaseContext(
             CreateContext requestContext,
             CreateResponse response,
@@ -318,7 +278,7 @@ namespace SMBLibrary.Server.SMB2
             
             try
             {
-                // Parse lease request from CreateContext.Data
+                // Parse lease request from client's RqLs context
                 LeaseContext leaseRequest = ParseLeaseContextFromData(requestContext);
                 
                 if (leaseRequest == null)
@@ -364,100 +324,8 @@ namespace SMBLibrary.Server.SMB2
         }
         
         /// <summary>
-        /// Try to proactively grant a lease (when client didn't request one)
-        /// </summary>
-        private static void TryProactivelyGrantLease(
-            CreateResponse response,
-            SMB2Session session,
-            FileID fileID,
-            string path,
-            FileAccess fileAccess,
-            ulong sessionID,
-            SMB2ConnectionState state)
-        {
-            try
-            {
-                // Evaluate if proactive lease grant is appropriate
-                LeaseState grantedState = EvaluateProactiveLeaseGrant(fileAccess, path);
-                
-                if (grantedState == LeaseState.None)
-                {
-                    // No lease to grant
-                    return;
-                }
-                
-                // Generate a new lease key (server-generated)
-                Guid leaseKey = Guid.NewGuid();
-                
-                state.LogToServer(Severity.Debug, 
-                    "Proactively granting lease: File='{0}', Key={1}, State={2}", 
-                    path, leaseKey, grantedState);
-                
-                // Create lease request for LeaseManager
-                var leaseRequest = new LeaseContext(
-                    leaseKey,
-                    grantedState,
-                    LeaseFlags.None,
-                    0 // LeaseDuration is typically 0 for SMB2
-                );
-                
-                // Process through LeaseContextHandler
-                var leaseResponse = session.LeaseContextHandler.ProcessCreateContext(
-                    leaseRequest,
-                    sessionID,
-                    fileID,
-                    path);
-                
-                if (leaseResponse != null)
-                {
-                    response.CreateContexts.Add(leaseResponse);
-                    response.OplockLevel = OplockLevel.Lease;
-                    
-                    state.LogToServer(Severity.Information, 
-                        "Proactive lease granted: File='{0}', Key={1}, State={2}", 
-                        path, leaseResponse.LeaseKey, leaseResponse.LeaseState);
-                }
-            }
-            catch (Exception ex)
-            {
-                // Log but don't fail the Create operation
-                state.LogToServer(Severity.Debug, 
-                    "Failed to proactively grant lease for '{0}': {1}", path, ex.Message);
-            }
-        }
-        
-        /// <summary>
-        /// Evaluate whether to proactively grant a lease and what lease state to grant
-        /// </summary>
-        private static LeaseState EvaluateProactiveLeaseGrant(FileAccess fileAccess, string path)
-        {
-            // Simple heuristic: Grant read lease for read-only access
-            // Grant read+handle lease for read-write access
-            // This is a conservative approach - can be made more sophisticated
-            
-            bool hasRead = (fileAccess & FileAccess.Read) != 0;
-            bool hasWrite = (fileAccess & FileAccess.Write) != 0;
-            
-            if (hasRead && hasWrite)
-            {
-                // Read-write access: grant RH (read + handle caching)
-                // We don't grant write caching proactively as it's more aggressive
-                return LeaseState.ReadCaching | LeaseState.HandleCaching;
-            }
-            else if (hasRead)
-            {
-                // Read-only access: grant R (read caching)
-                return LeaseState.ReadCaching;
-            }
-            else
-            {
-                // No read/write access (e.g., delete, attributes only): no lease
-                return LeaseState.None;
-            }
-        }
-        
-        /// <summary>
-        /// Parse LeaseContext from CreateContext.Data
+        /// Parse LeaseContext from client's RqLs CreateContext.Data.
+        /// Supports both LEASE_V1 (32 bytes) and LEASE_V2 (52 bytes).
         /// </summary>
         private static LeaseContext ParseLeaseContextFromData(CreateContext context)
         {
@@ -468,24 +336,34 @@ namespace SMBLibrary.Server.SMB2
             
             try
             {
-                // LeaseContext expects Data to contain the 32-byte lease structure
-                // Create a temporary LeaseContext and let it parse the data
+                // Parse using LeaseContext's built-in parser (handles LEASE_V1)
                 var leaseContext = new LeaseContext();
                 leaseContext.Name = context.Name;
                 leaseContext.Data = context.Data;
                 
-                // Parse the lease data (LeaseContext will parse from Data field)
-                // Use reflection or create a new instance with proper parsing
-                if (context.Data.Length >= 32)
+                // Parse basic fields (LEASE_V1: 32 bytes)
+                int offset = 0;
+                leaseContext.LeaseKey = LittleEndianConverter.ToGuid(context.Data, offset);
+                offset += 16;
+                leaseContext.LeaseState = (LeaseState)LittleEndianConverter.ToUInt32(context.Data, offset);
+                offset += 4;
+                leaseContext.LeaseFlags = (LeaseFlags)LittleEndianConverter.ToUInt32(context.Data, offset);
+                offset += 4;
+                leaseContext.LeaseDuration = LittleEndianConverter.ToUInt64(context.Data, offset);
+                offset += 8;
+                
+                // Parse LEASE_V2 additional fields (ParentLeaseKey, Epoch) if present
+                if (context.Data.Length >= 52)
                 {
-                    int offset = 0;
-                    leaseContext.LeaseKey = LittleEndianConverter.ToGuid(context.Data, offset);
-                    offset += 16;
-                    leaseContext.LeaseState = (LeaseState)LittleEndianConverter.ToUInt32(context.Data, offset);
-                    offset += 4;
-                    leaseContext.LeaseFlags = (LeaseFlags)LittleEndianConverter.ToUInt32(context.Data, offset);
-                    offset += 4;
-                    leaseContext.LeaseDuration = LittleEndianConverter.ToUInt64(context.Data, offset);
+                    // For LEASE_V2, we could parse ParentLeaseKey and Epoch here
+                    // Guid parentLeaseKey = LittleEndianConverter.ToGuid(context.Data, offset);
+                    // offset += 16;
+                    // ushort epoch = LittleEndianConverter.ToUInt16(context.Data, offset);
+                    // offset += 2;
+                    // ushort reserved = LittleEndianConverter.ToUInt16(context.Data, offset);
+                    
+                    // Note: Current LeaseContext class only supports V1 fields.
+                    // For full V2 support, consider using LeaseV2CreateContextData or extending LeaseContext.
                 }
                 
                 return leaseContext;
@@ -495,5 +373,6 @@ namespace SMBLibrary.Server.SMB2
                 return null;
             }
         }
+
     }
 }
