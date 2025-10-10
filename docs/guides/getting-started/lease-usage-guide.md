@@ -33,8 +33,13 @@ m_server.LeaseConfiguration = new SMBLibrary.Server.Leasing.LeaseManagerConfigur
 
 **注意**: 
 - 如果不设置 `LeaseConfiguration` 属性，租赁协议将保持禁用状态
-- 客户端的租赁请求将被忽略，服务器将正常处理文件操作但不提供租赁支持
+- 服务器在 SMB2 Negotiate 响应中**不会**包含 `SMB2_GLOBAL_CAP_LEASING` 能力标志
+- 客户端看到服务器不支持租赁后，将不会发送租赁请求
 - 这样可以避免不需要租赁功能时的额外开销
+
+**工作原理**:
+1. **启用租赁时**: 服务器在 Negotiate 响应中设置 `Capabilities.Leasing` 标志，客户端可以请求租赁
+2. **禁用租赁时**: 服务器不设置该标志，客户端知道服务器不支持租赁，不会尝试请求
 
 ### 2. 配置参数说明
 
@@ -129,9 +134,15 @@ m_server = new SMBLibrary.Server.SMBServer(shares, securityProvider);
 
 // 不设置 LeaseConfiguration，租赁协议禁用（默认行为）
 // 服务器将正常工作，但不支持租赁功能
+// Negotiate 响应中不会包含 SMB2_GLOBAL_CAP_LEASING 标志
 
 m_server.Start(serverAddress, transportType, chkSMB1.Checked, chkSMB2.Checked);
 ```
+
+**效果**:
+- ❌ Negotiate 响应中**不包含** `Capabilities.Leasing` 标志
+- ❌ 客户端不会尝试请求租赁
+- ✅ 服务器正常处理文件操作，没有租赁相关开销
 
 **适用场景**:
 - 简单的文件服务器，不需要高级缓存功能
@@ -153,6 +164,11 @@ m_server.LeaseConfiguration = new SMBLibrary.Server.Leasing.LeaseManagerConfigur
 };
 ```
 
+**效果**:
+- ✅ Negotiate 响应中**包含** `Capabilities.Leasing` 标志
+- ✅ 客户端看到服务器支持租赁，会在 Create 请求中包含租赁上下文
+- ✅ 服务器创建租赁并在 3 秒后自动过期
+
 ### 生产环境
 使用较长的租赁持续时间以最大化性能：
 
@@ -166,6 +182,72 @@ m_server.LeaseConfiguration = new SMBLibrary.Server.Leasing.LeaseManagerConfigur
     EnableLeaseBreakNotifications = true,
     EnableLeaseExpirationEvents = true
 };
+```
+
+## 协商协议中的租赁能力
+
+### SMB2_GLOBAL_CAP_LEASING 标志
+
+服务器在 SMB2 Negotiate 响应中使用 `Capabilities` 字段来告知客户端支持哪些功能。租赁协议通过 `SMB2_GLOBAL_CAP_LEASING` (0x00000002) 标志来表明支持。
+
+### 协商流程
+
+#### 启用租赁时的协商流程
+
+```
+客户端 -> 服务器: Negotiate Request
+                  Dialects: [SMB 2.002, SMB 2.1, SMB 3.0]
+
+服务器 -> 客户端: Negotiate Response
+                  DialectRevision: SMB 2.1
+                  Capabilities: 0x00000006 (Leasing | LargeMTU)
+                                ↑ 包含 Leasing 标志
+
+客户端 -> 服务器: Create Request (打开文件)
+                  RequestedOplockLevel: Lease
+                  CreateContexts: [LeaseContext]
+                                  ↑ 客户端看到支持租赁，发送租赁请求
+
+服务器 -> 客户端: Create Response
+                  OplockLevel: Lease
+                  CreateContexts: [LeaseContext]
+                                  ↑ 服务器授予租赁
+```
+
+#### 禁用租赁时的协商流程
+
+```
+客户端 -> 服务器: Negotiate Request
+                  Dialects: [SMB 2.002, SMB 2.1, SMB 3.0]
+
+服务器 -> 客户端: Negotiate Response
+                  DialectRevision: SMB 2.1
+                  Capabilities: 0x00000004 (LargeMTU)
+                                ↑ 不包含 Leasing 标志
+
+客户端 -> 服务器: Create Request (打开文件)
+                  RequestedOplockLevel: None
+                                        ↑ 客户端看到不支持租赁，不请求
+
+服务器 -> 客户端: Create Response
+                  OplockLevel: None
+                                ↑ 不授予租赁
+```
+
+### 实现细节
+
+在 `NegotiateHelper.cs` 中，服务器根据 `LeaseConfiguration` 是否为 null 来决定是否设置 Leasing 标志：
+
+```csharp
+// 在 SMBServer 中
+bool supportsLeasing = (m_leaseConfig != null);
+response = NegotiateHelper.GetNegotiateResponse(..., supportsLeasing);
+
+// 在 NegotiateHelper 中
+if (supportsLeasing)
+{
+    response.Capabilities |= Capabilities.Leasing; // 设置 0x00000002 标志
+}
 ```
 
 ## 监控和日志
