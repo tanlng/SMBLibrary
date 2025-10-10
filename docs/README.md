@@ -8,10 +8,12 @@
 → 查看 **[MxAc 完整指南](guides/implementation/mxac-guide.md)** ⭐
 
 ### 我想实现 SMB2 租赁
-→ 查看 **[Lease 实现指南](guides/implementation/lease-implementation-guide.md)**
+→ 查看 **[RqLs 租约详解](protocols/smb2/rqls-lease-context-explained.md)** ⭐  
+→ 参考 **[抓包数据分析](protocols/smb2/packet-captures/LEASE_KEY_ANALYSIS.md)** 验证实现
 
 ### 我遇到问题需要调试
-→ 查看 **[Lease 故障排除](guides/troubleshooting/lease-troubleshooting-guide.md)**
+→ 查看 **[Wireshark 抓包分析](protocols/smb2/packet-captures/WIRESHARK_PACKET_ANALYSIS.md)**  
+→ 对比 **[抓包数据](protocols/smb2/packet-captures/leasing/windows.json)** 检查字段值
 
 ---
 
@@ -38,12 +40,19 @@ docs/
 │
 ├── protocols/                          # 协议规范
 │   └── smb2/
-│       ├── file-id-persistent-volatile.md ⭐
-│       ├── file-index-number-explained.md ⭐
-│       ├── rqls-lease-context-explained.md ⭐
-│       ├── smb2-create-contexts.md
-│       ├── smb2-negotiate-capabilities.md
-│       ├── smb2-lease-protocol.md
+│       ├── README.md                       # SMB2 文档导航 ⭐
+│       ├── smb2-create-contexts.md         # Create Contexts 参考
+│       ├── smb2-negotiate-capabilities.md  # 协商能力
+│       ├── smb2-lease-protocol.md          # 租约协议概述
+│       ├── rqls-lease-context-explained.md # RqLs 详解 ⭐
+│       ├── file-id-persistent-volatile.md  # FileID 实现 ⭐
+│       ├── file-index-number-explained.md  # File Index Number
+│       ├── packet-captures/                # 抓包数据验证
+│       │   ├── README.md
+│       │   ├── WIRESHARK_PACKET_ANALYSIS.md
+│       │   ├── LEASE_KEY_ANALYSIS.md ⭐
+│       │   └── leasing/
+│       │       └── windows.json            # 原始抓包数据
 │       └── leasing/
 │           └── smb2-lease-architecture.md
 │
