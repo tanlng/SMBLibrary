@@ -66,7 +66,7 @@ namespace SMBLibrary.Server.Leasing
                 leaseInfo.LeaseKey,
                 leaseInfo.State,
                 leaseInfo.Flags,
-                (ulong)leaseInfo.RemainingTime.TotalMilliseconds
+                (ulong)Math.Max(0, leaseInfo.RemainingTime.TotalMilliseconds)
             );
             
             return context;

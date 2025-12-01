@@ -62,7 +62,7 @@ namespace SMBLibrary.Server.Leasing
             m_lock = new ReaderWriterLockSlim();
 
             // Start cleanup timer
-            m_cleanupTimer = new Timer(CleanupExpiredLeasesCallback, null, 
+            m_cleanupTimer = new Timer(CleanupExpiredLeasesCallback, null,
                 0, (int)m_config.CleanupInterval.TotalMilliseconds);
         }
 
@@ -75,14 +75,14 @@ namespace SMBLibrary.Server.Leasing
                 throw new ObjectDisposedException(nameof(LeaseManager));
 
             if (!request.IsValid())
-                throw new LeaseException("Invalid lease request", 
+                throw new LeaseException("Invalid lease request",
                     request.LeaseKey, LeaseErrorCode.LeaseInvalid);
 
             // Check if lease already exists
             if (m_leaseRegistry.TryGetValue(request.LeaseKey, out var existingLease))
             {
                 // Per MS-SMB2 spec: If lease exists, validate and return it
-                
+
                 // Check if lease is expired
                 if (existingLease.IsExpired)
                 {
@@ -97,7 +97,7 @@ namespace SMBLibrary.Server.Leasing
                 else if (existingLease.SessionId != request.SessionId)
                 {
                     // Different session trying to use same lease key - this is an error
-                    throw new LeaseException("Lease already exists in different session", 
+                    throw new LeaseException("Lease already exists in different session",
                         request.LeaseKey, LeaseErrorCode.LeaseAlreadyExists);
                 }
                 else
@@ -106,19 +106,19 @@ namespace SMBLibrary.Server.Leasing
                     // Note: UpdateAccess() is not thread-safe, but the impact is minimal
                     // (just access tracking, not critical for correctness)
                     existingLease.UpdateAccess();
-                    
+
                     // Add new file to lease tracking if it's a different file
                     // Use struct comparison to properly compare FileID
-                    bool isDifferentFile = (existingLease.FileId.Persistent != request.FileId.Persistent || 
+                    bool isDifferentFile = (existingLease.FileId.Persistent != request.FileId.Persistent ||
                                            existingLease.FileId.Volatile != request.FileId.Volatile);
-                    
+
                     if (isDifferentFile)
                     {
                         // Per MS-SMB2: A lease can be associated with multiple files
                         // Add new file to tracking index
                         m_fileLeases.AddOrUpdate(request.FileId,
                             new List<Guid> { request.LeaseKey },
-                            (key, existing) => 
+                            (key, existing) =>
                             {
                                 lock (existing) // Thread-safe list modification
                                 {
@@ -128,20 +128,18 @@ namespace SMBLibrary.Server.Leasing
                                 return existing;
                             });
                     }
-                    
+
                     return existingLease;
                 }
             }
 
             // No existing lease or expired - create new lease
             if (m_leaseRegistry.Count >= m_config.MaxLeases)
-                throw new LeaseException("Maximum lease count exceeded", 
+                throw new LeaseException("Maximum lease count exceeded",
                     Guid.Empty, LeaseErrorCode.LeaseResourceExhausted);
 
             // Use default lease duration if client sends 0 (per MS-SMB2 spec)
-            TimeSpan effectiveDuration = request.LeaseDuration > TimeSpan.Zero 
-                ? request.LeaseDuration 
-                : m_config.DefaultLeaseDuration;
+            TimeSpan effectiveDuration = GetEffectiveDuration(request);
 
             var leaseInfo = new LeaseInfo
             {
@@ -178,6 +176,15 @@ namespace SMBLibrary.Server.Leasing
             }
         }
 
+        private TimeSpan GetEffectiveDuration(LeaseRequest request)
+        {
+            if (request.LeaseDuration > TimeSpan.Zero && request.LeaseDuration < m_config.DefaultLeaseDuration)
+            {
+                return request.LeaseDuration;
+            }
+            return m_config.DefaultLeaseDuration;
+        }
+
         /// <summary>
         /// Break specified lease
         /// </summary>
@@ -193,7 +200,7 @@ namespace SMBLibrary.Server.Leasing
                 throw new LeaseExpiredException(leaseKey);
 
             leaseInfo.PendingBreakReason = reason;
-            
+
             if (m_config.EnableLeaseBreakNotifications)
             {
                 LeaseBreakRequested?.Invoke(this, new LeaseBreakEventArgs(leaseKey, reason));
@@ -212,7 +219,7 @@ namespace SMBLibrary.Server.Leasing
                 throw new LeaseNotFoundException(leaseKey);
 
             if (!leaseInfo.IsBreaking)
-                throw new LeaseException("Lease is not in breaking state", 
+                throw new LeaseException("Lease is not in breaking state",
                     leaseKey, LeaseErrorCode.LeaseBreakInProgress);
 
             leaseInfo.PendingBreakReason = null;
