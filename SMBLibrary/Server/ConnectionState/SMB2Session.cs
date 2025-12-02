@@ -256,8 +256,8 @@ namespace SMBLibrary.Server
             switch (reason)
             {
                 case LeaseBreakReason.WriteRequest:
-                    // Downgrade to read-only if write access is requested
-                    return currentState & ~LeaseState.WriteCaching;
+                    // Remove all caching if write access is requested (or file modified)
+                    return LeaseState.None;
                     
                 case LeaseBreakReason.HandleClose:
                     // Remove handle caching

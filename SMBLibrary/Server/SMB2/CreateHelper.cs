@@ -36,29 +36,17 @@ namespace SMBLibrary.Server.SMB2
                 }
             }
 
-            object handle;
-            FileStatus fileStatus;
-            // GetFileInformation/FileNetworkOpenInformation requires FILE_READ_ATTRIBUTES
-            AccessMask desiredAccess = request.DesiredAccess | (AccessMask)FileAccessMask.FILE_READ_ATTRIBUTES;
-            NTStatus createStatus = share.FileStore.CreateFile(out handle, out fileStatus, path, desiredAccess, request.FileAttributes, request.ShareAccess, request.CreateDisposition, request.CreateOptions, session.SecurityContext);
-            if (createStatus != NTStatus.STATUS_SUCCESS)
-            {
-                state.LogToServer(Severity.Verbose, "Create: Opening '{0}{1}' failed. NTStatus: {2}.", share.Name, path, createStatus);
-                return new ErrorResponse(request.CommandName, createStatus);
-            }
-
             // Break leases if file was modified/created
+            // We do this BEFORE creating the file to ensure the client receives the Lease Break
+            // before the Notification (which might be triggered by CreateFile).
             if (state.LeaseManager != null)
             {
                 bool isWrite = false;
                 if (request.CreateDisposition == CreateDisposition.FILE_CREATE ||
                     request.CreateDisposition == CreateDisposition.FILE_SUPERSEDE ||
                     request.CreateDisposition == CreateDisposition.FILE_OVERWRITE ||
-                    request.CreateDisposition == CreateDisposition.FILE_OVERWRITE_IF)
-                {
-                    isWrite = true;
-                }
-                else if (request.CreateDisposition == CreateDisposition.FILE_OPEN_IF && fileStatus == FileStatus.FILE_CREATED)
+                    request.CreateDisposition == CreateDisposition.FILE_OVERWRITE_IF ||
+                    request.CreateDisposition == CreateDisposition.FILE_OPEN_IF)
                 {
                     isWrite = true;
                 }
@@ -74,6 +62,17 @@ namespace SMBLibrary.Server.SMB2
                         state.LogToServer(Severity.Error, "Failed to break leases for path: {0}. Error: {1}", path, ex.Message);
                     }
                 }
+            }
+
+            object handle;
+            FileStatus fileStatus;
+            // GetFileInformation/FileNetworkOpenInformation requires FILE_READ_ATTRIBUTES
+            AccessMask desiredAccess = request.DesiredAccess | (AccessMask)FileAccessMask.FILE_READ_ATTRIBUTES;
+            NTStatus createStatus = share.FileStore.CreateFile(out handle, out fileStatus, path, desiredAccess, request.FileAttributes, request.ShareAccess, request.CreateDisposition, request.CreateOptions, session.SecurityContext);
+            if (createStatus != NTStatus.STATUS_SUCCESS)
+            {
+                state.LogToServer(Severity.Verbose, "Create: Opening '{0}{1}' failed. NTStatus: {2}.", share.Name, path, createStatus);
+                return new ErrorResponse(request.CommandName, createStatus);
             }
 
             FileAccess fileAccess = NTFileStoreHelper.ToFileAccess(desiredAccess);

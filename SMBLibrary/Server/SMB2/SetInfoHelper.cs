@@ -85,14 +85,9 @@ namespace SMBLibrary.Server.SMB2
                     }
                 }
 
-                NTStatus status = share.FileStore.SetFileInformation(openFile.Handle, information);
-                if (status != NTStatus.STATUS_SUCCESS)
-                {
-                    state.LogToServer(Severity.Verbose, "SetFileInformation on '{0}{1}' failed. Information class: {2}, NTStatus: {3}. (FileId: {4})", share.Name, openFile.Path, request.FileInformationClass, status, request.FileId.Volatile);
-                    return new ErrorResponse(request.CommandName, status);
-                }
-
                 // Break leases on SetFileInformation
+                // We do this BEFORE setting file information to ensure the client receives the Lease Break
+                // before the Notification (which might be triggered by SetFileInformation).
                 if (state.LeaseManager != null)
                 {
                     try
@@ -115,6 +110,13 @@ namespace SMBLibrary.Server.SMB2
                     {
                         state.LogToServer(Severity.Error, "Failed to break leases in SetFileInformation. Error: {0}", ex.Message);
                     }
+                }
+
+                NTStatus status = share.FileStore.SetFileInformation(openFile.Handle, information);
+                if (status != NTStatus.STATUS_SUCCESS)
+                {
+                    state.LogToServer(Severity.Verbose, "SetFileInformation on '{0}{1}' failed. Information class: {2}, NTStatus: {3}. (FileId: {4})", share.Name, openFile.Path, request.FileInformationClass, status, request.FileId.Volatile);
+                    return new ErrorResponse(request.CommandName, status);
                 }
 
                 if (information is FileRenameInformationType2)

@@ -64,15 +64,9 @@ namespace SMBLibrary.Server.SMB2
                     return new ErrorResponse(request.CommandName, NTStatus.STATUS_ACCESS_DENIED);
                 }
             }
-            int numberOfBytesWritten;
-            NTStatus writeStatus = share.FileStore.WriteFile(out numberOfBytesWritten, openFile.Handle, (long)request.Offset, request.Data);
-            if (writeStatus != NTStatus.STATUS_SUCCESS)
-            {
-                state.LogToServer(Severity.Verbose, "Write to '{0}{1}' failed. NTStatus: {2}. (FileId: {3})", share.Name, openFile.Path, writeStatus, request.FileId.Volatile);
-                return new ErrorResponse(request.CommandName, writeStatus);
-            }
-
             // Break leases on write
+            // We do this BEFORE writing to the file to ensure the client receives the Lease Break
+            // before the Notification (which might be triggered by WriteFile).
             if (state.LeaseManager != null)
             {
                 try
@@ -83,6 +77,14 @@ namespace SMBLibrary.Server.SMB2
                 {
                     state.LogToServer(Severity.Error, "Failed to break leases for path: {0}. Error: {1}", openFile.Path, ex.Message);
                 }
+            }
+
+            int numberOfBytesWritten;
+            NTStatus writeStatus = share.FileStore.WriteFile(out numberOfBytesWritten, openFile.Handle, (long)request.Offset, request.Data);
+            if (writeStatus != NTStatus.STATUS_SUCCESS)
+            {
+                state.LogToServer(Severity.Verbose, "Write to '{0}{1}' failed. NTStatus: {2}. (FileId: {3})", share.Name, openFile.Path, writeStatus, request.FileId.Volatile);
+                return new ErrorResponse(request.CommandName, writeStatus);
             }
 
             WriteResponse response = new WriteResponse();
