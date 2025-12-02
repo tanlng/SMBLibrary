@@ -37,6 +37,7 @@ namespace SMBLibrary.Server
         private NamedPipeShare m_services; // Named pipes
         private Guid m_serverGuid;
         private SMBLibrary.Server.Leasing.LeaseManagerConfiguration m_leaseConfig;
+        private SMBLibrary.Server.Leasing.LeaseManager m_leaseManager;
 
         internal ConnectionManager m_connectionManager;
         private Thread m_sendSMBKeepAliveThread;
@@ -122,6 +123,12 @@ namespace SMBLibrary.Server
                 m_listening = true;
                 m_serverStartTime = DateTime.Now;
 
+                if (m_leaseConfig != null)
+                {
+                    m_leaseManager = new SMBLibrary.Server.Leasing.LeaseManager(m_leaseConfig);
+                    m_leaseManager.LogHandler = (severity, message) => Log(severity, message);
+                }
+
                 m_listenerSocket = new Socket(m_serverAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
                 m_listenerSocket.Bind(new IPEndPoint(m_serverAddress, port));
                 m_listenerSocket.Listen((int)SocketOptionName.MaxConnections);
@@ -158,6 +165,13 @@ namespace SMBLibrary.Server
         {
             Log(Severity.Information, "Stopping server");
             m_listening = false;
+
+            if (m_leaseManager != null)
+            {
+                m_leaseManager.Dispose();
+                m_leaseManager = null;
+            }
+
             if (m_sendSMBKeepAliveThread != null)
             {
 #if NET20
