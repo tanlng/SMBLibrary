@@ -22,6 +22,11 @@ namespace SMBLibrary.Server.Leasing
         /// Lease flags
         /// </summary>
         public LeaseFlags Flags { get; set; }
+
+        /// <summary>
+        /// Lease Epoch (Version)
+        /// </summary>
+        public ushort Epoch { get; set; }
         
         /// <summary>
         /// Creation time
@@ -52,6 +57,11 @@ namespace SMBLibrary.Server.Leasing
         /// Pending break reason
         /// </summary>
         public LeaseBreakReason? PendingBreakReason { get; set; }
+
+        /// <summary>
+        /// Time when the break was requested
+        /// </summary>
+        public DateTime BreakStartTime { get; set; }
         
         /// <summary>
         /// Last access time
@@ -113,6 +123,7 @@ namespace SMBLibrary.Server.Leasing
             LeaseKey = Guid.Empty;
             State = LeaseState.None;
             Flags = LeaseFlags.None;
+            Epoch = 0;
             CreatedTime = DateTime.MinValue;
             ExpirationTime = DateTime.MinValue;
             SessionId = 0;

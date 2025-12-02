@@ -92,6 +92,31 @@ namespace SMBLibrary.Server.SMB2
                     return new ErrorResponse(request.CommandName, status);
                 }
 
+                // Break leases on SetFileInformation
+                if (state.LeaseManager != null)
+                {
+                    try
+                    {
+                        // Break lease on current path
+                        state.LeaseManager.BreakLeases(openFile.Path);
+
+                        // If rename, break lease on new path
+                        if (information is FileRenameInformationType2 renameInfo)
+                        {
+                            string newPath = renameInfo.FileName;
+                            if (!newPath.StartsWith(@"\"))
+                            {
+                                newPath = @"\" + newPath;
+                            }
+                            state.LeaseManager.BreakLeases(newPath);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        state.LogToServer(Severity.Error, "Failed to break leases in SetFileInformation. Error: {0}", ex.Message);
+                    }
+                }
+
                 if (information is FileRenameInformationType2)
                 {
                     string newFileName = ((FileRenameInformationType2)information).FileName;

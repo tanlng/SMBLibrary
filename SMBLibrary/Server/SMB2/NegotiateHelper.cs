@@ -54,6 +54,7 @@ namespace SMBLibrary.Server.SMB2
             if (supportsLeasing)
             {
                 response.Capabilities |= Capabilities.Leasing;
+                response.Capabilities |= Capabilities.DirectoryLeasing;
             }
             
             if (state.Dialect != SMBDialect.SMB202 && transportType == SMBTransportType.DirectTCPTransport)
@@ -110,6 +111,7 @@ namespace SMBLibrary.Server.SMB2
             if (supportsLeasing)
             {
                 response.Capabilities |= Capabilities.Leasing;
+                response.Capabilities |= Capabilities.DirectoryLeasing;
             }
             
             if (state.Dialect != SMBDialect.SMB202 && transportType == SMBTransportType.DirectTCPTransport)

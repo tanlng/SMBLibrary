@@ -54,7 +54,7 @@ namespace SMBLibrary.Server.Leasing
         /// <summary>
         /// Process lease break acknowledgment
         /// </summary>
-        public void ProcessLeaseBreakAcknowledgment(LeaseBreakAck ack)
+        public void ProcessLeaseBreakAcknowledgment(LeaseBreakResponse ack)
         {
             if (ack == null)
                 throw new ArgumentNullException(nameof(ack));

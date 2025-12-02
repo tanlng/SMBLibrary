@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using SMBLibrary.SMB2;
+using Utilities;
 
 namespace SMBLibrary.Server.Leasing
 {
@@ -13,6 +14,11 @@ namespace SMBLibrary.Server.Leasing
     /// </summary>
     public class LeaseManager : IDisposable
     {
+        /// <summary>
+        /// Log handler delegate
+        /// </summary>
+        public Action<Severity, string> LogHandler { get; set; }
+
         private readonly ConcurrentDictionary<Guid, LeaseInfo> m_leaseRegistry;
         private readonly ConcurrentDictionary<FileID, List<Guid>> m_fileLeases;
         private readonly ConcurrentDictionary<ulong, List<Guid>> m_sessionLeases;
@@ -71,6 +77,8 @@ namespace SMBLibrary.Server.Leasing
         /// </summary>
         public LeaseInfo CreateLease(LeaseRequest request)
         {
+            byte[] keyBytes = request.LeaseKey.ToByteArray();
+            LogHandler?.Invoke(Severity.Debug, $"[LeaseManager] CreateLease requested. Key (Guid): {request.LeaseKey}, Key (Bytes): {BitConverter.ToString(keyBytes)}, Path: {request.FilePath}, State: {request.LeaseState.ToString()}");
             if (m_disposed)
                 throw new ObjectDisposedException(nameof(LeaseManager));
 
@@ -146,6 +154,7 @@ namespace SMBLibrary.Server.Leasing
                 LeaseKey = request.LeaseKey,
                 State = request.LeaseState,
                 Flags = request.LeaseFlags,
+                Epoch = 1, // Initialize Epoch to 1 for new Lease (V2)
                 CreatedTime = DateTime.UtcNow,
                 ExpirationTime = DateTime.UtcNow.Add(effectiveDuration),
                 SessionId = request.SessionId,
@@ -190,6 +199,7 @@ namespace SMBLibrary.Server.Leasing
         /// </summary>
         public void BreakLease(Guid leaseKey, LeaseBreakReason reason)
         {
+            Console.WriteLine($"[LeaseManager] BreakLease called for Key: {leaseKey}, Reason: {reason}");
             if (m_disposed)
                 throw new ObjectDisposedException(nameof(LeaseManager));
 
@@ -199,7 +209,12 @@ namespace SMBLibrary.Server.Leasing
             if (leaseInfo.IsExpired)
                 throw new LeaseExpiredException(leaseKey);
 
+            // Increment Epoch for Lease Break (V2 requirement)
+            leaseInfo.Epoch++;
+            Console.WriteLine($"[LeaseManager] Incremented Epoch to {leaseInfo.Epoch} for Lease {leaseKey}");
+
             leaseInfo.PendingBreakReason = reason;
+            leaseInfo.BreakStartTime = DateTime.UtcNow;
 
             if (m_config.EnableLeaseBreakNotifications)
             {
@@ -310,11 +325,106 @@ namespace SMBLibrary.Server.Leasing
         }
 
         /// <summary>
+        /// Break leases for a specific path (file or directory)
+        /// This handles breaking the lease on the file itself AND the parent directory
+        /// </summary>
+        public void BreakLeases(string path)
+        {
+            LogHandler?.Invoke(Severity.Debug, $"[LeaseManager] BreakLeases requested for: {path}");
+            if (string.IsNullOrEmpty(path)) return;
+
+            // Normalize path separators
+            path = path.Replace('/', '\\');
+            if (!path.StartsWith("\\")) path = "\\" + path;
+
+            string parentPath = null;
+            int lastSlash = path.LastIndexOf('\\');
+            if (lastSlash > 0) // Not root
+            {
+                parentPath = path.Substring(0, lastSlash);
+            }
+            else if (lastSlash == 0 && path.Length > 1) // File in root
+            {
+                parentPath = "\\";
+            }
+
+            var activeLeases = GetActiveLeases();
+            LogHandler?.Invoke(Severity.Verbose, $"[LeaseManager] Checking {activeLeases.Count.ToString()} active leases against path: {path} (Parent: {parentPath})");
+            
+            foreach (var lease in activeLeases)
+            {
+                bool shouldBreak = false;
+                string leasePath = lease.FilePath;
+                if (string.IsNullOrEmpty(leasePath)) continue;
+
+                // Normalize lease path
+                leasePath = leasePath.Replace('/', '\\');
+                if (!leasePath.StartsWith("\\")) leasePath = "\\" + leasePath;
+
+                // 1. Exact match (File Lease or Directory Lease on the target itself)
+                if (string.Equals(leasePath, path, StringComparison.OrdinalIgnoreCase))
+                {
+                    shouldBreak = true;
+                    LogHandler?.Invoke(Severity.Information, $"[LeaseManager] Match found (Exact): {leasePath}, Session: {lease.SessionId.ToString()}");
+                }
+                // 2. Parent match (Directory Lease on the parent of the target)
+                else if (parentPath != null && string.Equals(leasePath, parentPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    shouldBreak = true;
+                    LogHandler?.Invoke(Severity.Information, $"[LeaseManager] Match found (Parent): {leasePath} is parent of {path}, Session: {lease.SessionId.ToString()}");
+                }
+
+                if (shouldBreak)
+                {
+                    try
+                    {
+                        LogHandler?.Invoke(Severity.Information, $"[LeaseManager] Breaking lease {lease.LeaseKey.ToString()} for path {leasePath}, Session: {lease.SessionId.ToString()}");
+                        // Break the lease
+                        BreakLease(lease.LeaseKey, LeaseBreakReason.WriteRequest);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogHandler?.Invoke(Severity.Error, $"[LeaseManager] Error breaking lease: {ex.Message}");
+                    }
+                }
+            }
+        }
+
         /// Timer callback for cleanup
         /// </summary>
         private void CleanupExpiredLeasesCallback(object state)
         {
             CleanupExpiredLeases();
+            ProcessLeaseBreakTimeouts();
+        }
+
+        /// <summary>
+        /// Process lease break timeouts
+        /// </summary>
+        public void ProcessLeaseBreakTimeouts()
+        {
+            if (m_disposed) return;
+
+            var activeLeases = GetActiveLeases();
+            var now = DateTime.UtcNow;
+            var timeout = m_config.LeaseBreakTimeout;
+
+            foreach (var lease in activeLeases)
+            {
+                if (lease.IsBreaking && (now - lease.BreakStartTime) > timeout)
+                {
+                    Console.WriteLine($"[LeaseManager] Lease break timeout for Key: {lease.LeaseKey}. Forcing break acknowledgment.");
+                    try
+                    {
+                        // Force acknowledge
+                        AcknowledgeLeaseBreak(lease.LeaseKey);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[LeaseManager] Error processing lease break timeout: {ex.Message}");
+                    }
+                }
+            }
         }
 
         /// <summary>

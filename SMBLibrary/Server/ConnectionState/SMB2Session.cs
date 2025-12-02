@@ -53,7 +53,7 @@ namespace SMBLibrary.Server
         /// </summary>
         public LeaseContextHandler LeaseContextHandler => m_leaseContextHandler;
 
-        public SMB2Session(SMB2ConnectionState connection, ulong sessionID, string userName, string machineName, byte[] sessionKey, object accessToken, bool signingRequired, byte[] signingKey, LeaseManagerConfiguration leaseConfig = null)
+        public SMB2Session(SMB2ConnectionState connection, ulong sessionID, string userName, string machineName, byte[] sessionKey, object accessToken, bool signingRequired, byte[] signingKey, LeaseManagerConfiguration leaseConfig = null, LeaseManager leaseManager = null)
         {
             m_connection = connection;
             m_sessionID = sessionID;
@@ -64,16 +64,16 @@ namespace SMBLibrary.Server
             m_signingKey = signingKey;
 
             // 初始化租赁管理器
-            InitializeLeaseManager(leaseConfig);
+            InitializeLeaseManager(leaseConfig, leaseManager);
         }
 
         /// <summary>
         /// Initialize lease manager
         /// </summary>
-        private void InitializeLeaseManager(LeaseManagerConfiguration leaseConfig)
+        private void InitializeLeaseManager(LeaseManagerConfiguration leaseConfig, LeaseManager leaseManager)
         {
-            // Lease protocol is optional - only initialize if configuration is provided
-            if (leaseConfig == null)
+            // Lease protocol is optional - only initialize if configuration is provided or manager is provided
+            if (leaseConfig == null && leaseManager == null)
             {
                 m_leaseManager = null;
                 m_leaseContextHandler = null;
@@ -81,7 +81,15 @@ namespace SMBLibrary.Server
                 return;
             }
 
-            m_leaseManager = new LeaseManager(leaseConfig);
+            if (leaseManager != null)
+            {
+                m_leaseManager = leaseManager;
+            }
+            else
+            {
+                m_leaseManager = new LeaseManager(leaseConfig);
+            }
+            
             m_leaseContextHandler = new LeaseContextHandler(m_leaseManager);
             m_leaseBreakHandler = new LeaseBreakHandler(m_leaseManager);
 
@@ -95,8 +103,34 @@ namespace SMBLibrary.Server
         /// </summary>
         private void OnLeaseBreakRequested(object sender, LeaseBreakEventArgs e)
         {
+            LogToServer(Severity.Debug, "[SMB2Session] OnLeaseBreakRequested for LeaseKey: {0}, SessionID: {1}", e.LeaseKey, m_sessionID);
             if (m_leaseManager == null)
                 return;
+
+            // Check if this lease belongs to this session
+            try
+            {
+                LeaseInfo leaseInfo = m_leaseManager.GetLeaseInfo(e.LeaseKey);
+                if (leaseInfo == null)
+                {
+                    LogToServer(Severity.Warning, "[SMB2Session] LeaseInfo not found for Key: {0}", e.LeaseKey);
+                    return;
+                }
+                
+                if (leaseInfo.SessionId != m_sessionID)
+                {
+                    LogToServer(Severity.Debug, "[SMB2Session] Lease belongs to different session. Lease Session: {0}, Current Session: {1}", leaseInfo.SessionId, m_sessionID);
+                    return;
+                }
+                
+                LogToServer(Severity.Debug, "[SMB2Session] Lease match found! Sending break notification.");
+            }
+            catch (Exception ex)
+            {
+                LogToServer(Severity.Error, "[SMB2Session] Error checking lease info: {0}", ex.Message);
+                // Lease might have been removed or other error
+                return;
+            }
                 
             // Send lease break notification
             SendLeaseBreakNotification(e.LeaseKey, e.Reason);
@@ -121,14 +155,22 @@ namespace SMBLibrary.Server
         {
             try
             {
+                // Log detailed key info
+                byte[] keyBytes = leaseKey.ToByteArray();
+                LogToServer(Severity.Debug, "[SMB2Session] Sending LeaseBreak. Key (Guid): {0}, Key (Bytes): {1}", 
+                    leaseKey, BitConverter.ToString(keyBytes));
+
                 // Create lease break request
                 var leaseBreakRequest = new LeaseBreakRequest
                 {
                     LeaseKey = leaseKey,
                     CurrentLeaseState = LeaseState.None, // Will be set by lease manager
                     NewLeaseState = LeaseState.None,    // Will be set by lease manager
-                    LeaseFlags = LeaseFlags.BreakInProgress,
-                    LeaseDuration = 0
+                    Flags = 0x01, // SMB2_NOTIFY_BREAK_LEASE_FLAG_ACK_REQUIRED
+                    NewEpoch = 0,
+                    BreakReason = 0,
+                    AccessMaskHint = 0,
+                    ShareMaskHint = 0
                 };
 
                 // Get lease info to set proper states
@@ -137,6 +179,21 @@ namespace SMBLibrary.Server
                 {
                     leaseBreakRequest.CurrentLeaseState = leaseInfo.State;
                     leaseBreakRequest.NewLeaseState = DetermineNewLeaseState(leaseInfo.State, reason);
+                    leaseBreakRequest.NewEpoch = leaseInfo.Epoch; // Use the incremented Epoch from LeaseManager
+                    
+                    // Set BreakReason based on NewLeaseState
+                    // 0 = Break to None, 1 = Break to Read
+                    if (leaseBreakRequest.NewLeaseState == LeaseState.None)
+                    {
+                        leaseBreakRequest.BreakReason = 0; // SMB2_OPLOCK_BREAK_TO_NONE
+                    }
+                    else
+                    {
+                        leaseBreakRequest.BreakReason = 1; // SMB2_OPLOCK_BREAK_TO_LEVEL_II
+                    }
+
+                    LogToServer(Severity.Debug, "[SMB2Session] Using Epoch: {0}, BreakReason: {1} for LeaseBreak", 
+                        leaseBreakRequest.NewEpoch, leaseBreakRequest.BreakReason);
                 }
 
                 // Create SMB2 command with proper header
@@ -144,9 +201,9 @@ namespace SMBLibrary.Server
                 command.Header.Command = SMB2CommandName.OplockBreak;
                 command.Header.SessionID = m_sessionID;
                 command.Header.TreeID = 0; // Lease breaks are not tied to specific trees
-                command.Header.CreditCharge = 1;
-                command.Header.Credits = 1;
-                command.Header.Flags = 0;
+                command.Header.CreditCharge = 0; // Must be 0
+                command.Header.Credits = 0; // Must be 0
+                command.Header.Flags = SMB2PacketHeaderFlags.ServerToRedir;
                 command.Header.NextCommand = 0;
                 command.Header.MessageID = 0; // Will be set by server
                 // ProcessID and StructureSize are private fields, skip setting them
@@ -155,8 +212,11 @@ namespace SMBLibrary.Server
                 command.LeaseKey = leaseKey;
                 command.CurrentLeaseState = leaseBreakRequest.CurrentLeaseState;
                 command.NewLeaseState = leaseBreakRequest.NewLeaseState;
-                command.LeaseFlags = LeaseFlags.BreakInProgress;
-                command.LeaseDuration = 0;
+                command.Flags = leaseBreakRequest.Flags;
+                command.NewEpoch = leaseBreakRequest.NewEpoch;
+                command.BreakReason = leaseBreakRequest.BreakReason;
+                command.AccessMaskHint = leaseBreakRequest.AccessMaskHint;
+                command.ShareMaskHint = leaseBreakRequest.ShareMaskHint;
 
                 // Send the command using the connection's send mechanism
                 // This integrates with the existing SMB server's network sending infrastructure
@@ -165,6 +225,7 @@ namespace SMBLibrary.Server
                 packet.Trailer = SMB2Command.GetCommandChainBytes(responseChain, m_signingKey, SMB2Dialect.SMB2xx);
                 
                 // Send through connection state
+                LogToServer(Severity.Debug, "[SMB2Session] Calling m_connection.Send for LeaseBreak. Key: {0}", leaseKey);
                 m_connection.Send(packet);
                 
                 LogToServer(Severity.Debug, "Sent lease break notification for lease {0}, reason: {1}", leaseKey, reason);
@@ -173,6 +234,18 @@ namespace SMBLibrary.Server
             {
                 LogToServer(Severity.Error, "Failed to send lease break notification for lease {0}: {1}", leaseKey, ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Process lease break response from client
+        /// </summary>
+        public SMB2Command ProcessLeaseBreakResponse(LeaseBreakResponse response)
+        {
+            if (m_leaseBreakHandler != null)
+            {
+                m_leaseBreakHandler.ProcessLeaseBreakAcknowledgment(response);
+            }
+            return null; // No response required
         }
 
         /// <summary>

@@ -4,18 +4,17 @@ using Utilities;
 namespace SMBLibrary.SMB2
 {
     /// <summary>
-    /// SMB 2.0/2.1 Lease break response
+    /// SMB 2.0/2.1 Lease break response (Client -> Server)
     /// </summary>
     public class LeaseBreakResponse : SMB2Command
     {
-        public const int FixedLength = 24;
+        public const int FixedLength = 36;
 
         private ushort StructureSize;
         public ushort Reserved;
+        public uint Flags;
         public Guid LeaseKey;
-        public LeaseState CurrentLeaseState;
-        public LeaseState NewLeaseState;
-        public LeaseFlags LeaseFlags;
+        public LeaseState LeaseState;
         public ulong LeaseDuration;
 
         /// <summary>
@@ -33,11 +32,10 @@ namespace SMBLibrary.SMB2
         {
             StructureSize = LittleEndianConverter.ToUInt16(buffer, offset + SMB2Header.Length + 0);
             Reserved = LittleEndianConverter.ToUInt16(buffer, offset + SMB2Header.Length + 2);
-            LeaseKey = LittleEndianConverter.ToGuid(buffer, offset + SMB2Header.Length + 4);
-            CurrentLeaseState = (LeaseState)LittleEndianConverter.ToUInt32(buffer, offset + SMB2Header.Length + 20);
-            NewLeaseState = (LeaseState)LittleEndianConverter.ToUInt32(buffer, offset + SMB2Header.Length + 24);
-            LeaseFlags = (LeaseFlags)LittleEndianConverter.ToUInt32(buffer, offset + SMB2Header.Length + 28);
-            LeaseDuration = LittleEndianConverter.ToUInt64(buffer, offset + SMB2Header.Length + 32);
+            Flags = LittleEndianConverter.ToUInt32(buffer, offset + SMB2Header.Length + 4);
+            LeaseKey = LittleEndianConverter.ToGuid(buffer, offset + SMB2Header.Length + 8);
+            LeaseState = (LeaseState)LittleEndianConverter.ToUInt32(buffer, offset + SMB2Header.Length + 24);
+            LeaseDuration = LittleEndianConverter.ToUInt64(buffer, offset + SMB2Header.Length + 28);
         }
 
         /// <summary>
@@ -47,16 +45,11 @@ namespace SMBLibrary.SMB2
         {
             LittleEndianWriter.WriteUInt16(buffer, offset + 0, StructureSize);
             LittleEndianWriter.WriteUInt16(buffer, offset + 2, Reserved);
+            LittleEndianWriter.WriteUInt32(buffer, offset + 4, Flags);
             byte[] guidBytes = LittleEndianConverter.GetBytes(LeaseKey);
-            Array.Copy(guidBytes, 0, buffer, offset + 4, 16);
-            byte[] stateBytes = LittleEndianConverter.GetBytes((uint)CurrentLeaseState);
-            Array.Copy(stateBytes, 0, buffer, offset + 20, 4);
-            byte[] newStateBytes = LittleEndianConverter.GetBytes((uint)NewLeaseState);
-            Array.Copy(newStateBytes, 0, buffer, offset + 24, 4);
-            byte[] flagsBytes = LittleEndianConverter.GetBytes((uint)LeaseFlags);
-            Array.Copy(flagsBytes, 0, buffer, offset + 28, 4);
-            byte[] durationBytes = LittleEndianConverter.GetBytes(LeaseDuration);
-            Array.Copy(durationBytes, 0, buffer, offset + 32, 8);
+            Array.Copy(guidBytes, 0, buffer, offset + 8, 16);
+            LittleEndianWriter.WriteUInt32(buffer, offset + 24, (uint)LeaseState);
+            LittleEndianWriter.WriteUInt64(buffer, offset + 28, LeaseDuration);
         }
 
         /// <summary>

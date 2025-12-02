@@ -66,7 +66,9 @@ namespace SMBLibrary.Server.Leasing
                 leaseInfo.LeaseKey,
                 leaseInfo.State,
                 leaseInfo.Flags,
-                (ulong)Math.Max(0, leaseInfo.RemainingTime.TotalMilliseconds)
+                (ulong)Math.Max(0, leaseInfo.RemainingTime.TotalMilliseconds),
+                Guid.Empty, // ParentLeaseKey (not used in response)
+                leaseInfo.Epoch // Return the current Epoch (V2)
             );
             
             return context;

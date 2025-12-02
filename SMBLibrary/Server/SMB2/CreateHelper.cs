@@ -47,6 +47,35 @@ namespace SMBLibrary.Server.SMB2
                 return new ErrorResponse(request.CommandName, createStatus);
             }
 
+            // Break leases if file was modified/created
+            if (state.LeaseManager != null)
+            {
+                bool isWrite = false;
+                if (request.CreateDisposition == CreateDisposition.FILE_CREATE ||
+                    request.CreateDisposition == CreateDisposition.FILE_SUPERSEDE ||
+                    request.CreateDisposition == CreateDisposition.FILE_OVERWRITE ||
+                    request.CreateDisposition == CreateDisposition.FILE_OVERWRITE_IF)
+                {
+                    isWrite = true;
+                }
+                else if (request.CreateDisposition == CreateDisposition.FILE_OPEN_IF && fileStatus == FileStatus.FILE_CREATED)
+                {
+                    isWrite = true;
+                }
+
+                if (isWrite)
+                {
+                    try
+                    {
+                        state.LeaseManager.BreakLeases(path);
+                    }
+                    catch (Exception ex)
+                    {
+                        state.LogToServer(Severity.Error, "Failed to break leases for path: {0}. Error: {1}", path, ex.Message);
+                    }
+                }
+            }
+
             FileAccess fileAccess = NTFileStoreHelper.ToFileAccess(desiredAccess);
             FileID? fileID = session.AddOpenFile(request.Header.TreeID, share, path, handle, fileAccess);
             if (fileID == null)
@@ -356,14 +385,11 @@ namespace SMBLibrary.Server.SMB2
                 if (context.Data.Length >= 52)
                 {
                     // For LEASE_V2, we could parse ParentLeaseKey and Epoch here
-                    // Guid parentLeaseKey = LittleEndianConverter.ToGuid(context.Data, offset);
-                    // offset += 16;
-                    // ushort epoch = LittleEndianConverter.ToUInt16(context.Data, offset);
-                    // offset += 2;
-                    // ushort reserved = LittleEndianConverter.ToUInt16(context.Data, offset);
-                    
-                    // Note: Current LeaseContext class only supports V1 fields.
-                    // For full V2 support, consider using LeaseV2CreateContextData or extending LeaseContext.
+                    leaseContext.ParentLeaseKey = LittleEndianConverter.ToGuid(context.Data, offset);
+                    offset += 16;
+                    leaseContext.Epoch = LittleEndianConverter.ToUInt16(context.Data, offset);
+                    offset += 2;
+                    leaseContext.Reserved = LittleEndianConverter.ToUInt16(context.Data, offset);
                 }
                 
                 return leaseContext;

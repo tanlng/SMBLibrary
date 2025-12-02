@@ -32,12 +32,27 @@ namespace SMBLibrary.SMB2
         public ulong LeaseDuration;
 
         /// <summary>
+        /// Parent Lease Key (SMB 2.1+ / Lease V2)
+        /// </summary>
+        public Guid ParentLeaseKey;
+
+        /// <summary>
+        /// Lease Epoch (SMB 2.1+ / Lease V2)
+        /// </summary>
+        public ushort Epoch;
+
+        /// <summary>
+        /// Reserved (SMB 2.1+ / Lease V2)
+        /// </summary>
+        public ushort Reserved;
+
+        /// <summary>
         /// Constructor
         /// </summary>
         public LeaseContext()
         {
             Name = ContextName;
-            Data = new byte[32]; // 32 bytes of lease data
+            Data = new byte[52]; // Default to V2 size (52 bytes)
         }
 
         /// <summary>
@@ -52,14 +67,16 @@ namespace SMBLibrary.SMB2
         /// <summary>
         /// Constructor
         /// </summary>
-        public LeaseContext(Guid leaseKey, LeaseState leaseState, LeaseFlags leaseFlags, ulong leaseDuration)
+        public LeaseContext(Guid leaseKey, LeaseState leaseState, LeaseFlags leaseFlags, ulong leaseDuration, Guid parentLeaseKey, ushort epoch)
         {
             Name = ContextName;
             LeaseKey = leaseKey;
             LeaseState = leaseState;
             LeaseFlags = leaseFlags;
             LeaseDuration = leaseDuration;
-            Data = new byte[32];
+            ParentLeaseKey = parentLeaseKey;
+            Epoch = epoch;
+            Data = new byte[52];
             WriteLeaseData();
         }
 
@@ -78,6 +95,16 @@ namespace SMBLibrary.SMB2
                 LeaseFlags = (LeaseFlags)LittleEndianConverter.ToUInt32(Data, offset);
                 offset += 4;
                 LeaseDuration = LittleEndianConverter.ToUInt64(Data, offset);
+                offset += 8;
+
+                if (Data.Length >= 52)
+                {
+                    ParentLeaseKey = LittleEndianConverter.ToGuid(Data, offset);
+                    offset += 16;
+                    Epoch = LittleEndianConverter.ToUInt16(Data, offset);
+                    offset += 2;
+                    Reserved = LittleEndianConverter.ToUInt16(Data, offset);
+                }
             }
         }
 
@@ -86,9 +113,11 @@ namespace SMBLibrary.SMB2
         /// </summary>
         private void WriteLeaseData()
         {
-            if (Data.Length < 32)
+            // Determine version based on fields or force V2?
+            // Let's default to V2 (52 bytes) as modern clients expect it.
+            if (Data.Length < 52)
             {
-                Data = new byte[32];
+                Data = new byte[52];
             }
 
             int offset = 0;
@@ -103,6 +132,17 @@ namespace SMBLibrary.SMB2
             offset += 4;
             byte[] durationBytes = LittleEndianConverter.GetBytes(LeaseDuration);
             Array.Copy(durationBytes, 0, Data, offset, 8);
+            offset += 8;
+
+            // V2 Fields
+            byte[] parentKeyBytes = LittleEndianConverter.GetBytes(ParentLeaseKey);
+            Array.Copy(parentKeyBytes, 0, Data, offset, 16);
+            offset += 16;
+            byte[] epochBytes = LittleEndianConverter.GetBytes(Epoch);
+            Array.Copy(epochBytes, 0, Data, offset, 2);
+            offset += 2;
+            byte[] reservedBytes = LittleEndianConverter.GetBytes(Reserved);
+            Array.Copy(reservedBytes, 0, Data, offset, 2);
         }
 
         /// <summary>

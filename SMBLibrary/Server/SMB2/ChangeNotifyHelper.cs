@@ -49,6 +49,8 @@ namespace SMBLibrary.Server.SMB2
                 {
                     response.Header.IsAsync = true;
                     response.Header.AsyncID = asyncContext.AsyncID;
+                    // Fix: Populate MessageID even for Async responses, as some clients might rely on it
+                    response.Header.MessageID = asyncContext.MessageID;
                 }
                 return response;
             }
@@ -81,6 +83,8 @@ namespace SMBLibrary.Server.SMB2
                         response.Header.IsSigned = session.SigningRequired;
                         response.Header.AsyncID = asyncContext.AsyncID;
                         response.Header.SessionID = asyncContext.SessionID;
+                        // Fix: Populate MessageID even for Async responses, as some clients might rely on it
+                        response.Header.MessageID = asyncContext.MessageID;
                         response.OutputBuffer = buffer;
 
                         SMBServer.EnqueueResponse(connection, response);
@@ -93,6 +97,8 @@ namespace SMBLibrary.Server.SMB2
                         response.Header.IsAsync = true;
                         response.Header.IsSigned = session.SigningRequired;
                         response.Header.AsyncID = asyncContext.AsyncID;
+                        // Fix: Populate MessageID even for Async responses
+                        response.Header.MessageID = asyncContext.MessageID;
 
                         SMBServer.EnqueueResponse(connection, response);
                     }

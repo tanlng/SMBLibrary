@@ -22,10 +22,18 @@ namespace SMBLibrary.Server
         private Dictionary<ulong, SMB2AsyncContext> m_pendingRequests = new Dictionary<ulong, SMB2AsyncContext>();
         private ulong m_nextAsyncID = 1;
         private SMBLibrary.Server.Leasing.LeaseManagerConfiguration m_leaseConfig;
+        private SMBLibrary.Server.Leasing.LeaseManager m_leaseManager;
 
-        public SMB2ConnectionState(ConnectionState state, SMBLibrary.Server.Leasing.LeaseManagerConfiguration leaseConfig = null) : base(state)
+        public SMBLibrary.Server.Leasing.LeaseManager LeaseManager => m_leaseManager;
+
+        public SMB2ConnectionState(ConnectionState state, SMBLibrary.Server.Leasing.LeaseManagerConfiguration leaseConfig = null, SMBLibrary.Server.Leasing.LeaseManager leaseManager = null) : base(state)
         {
             m_leaseConfig = leaseConfig;
+            m_leaseManager = leaseManager;
+            if (m_leaseManager != null)
+            {
+                m_leaseManager.LogHandler = (severity, message) => LogToServer(severity, message);
+            }
         }
 
         public ulong? AllocateSessionID()
@@ -48,7 +56,7 @@ namespace SMBLibrary.Server
 
         public SMB2Session CreateSession(ulong sessionID, string userName, string machineName, byte[] sessionKey, object accessToken, bool signingRequired, byte[] signingKey)
         {
-            SMB2Session session = new SMB2Session(this, sessionID, userName, machineName, sessionKey, accessToken, signingRequired, signingKey, m_leaseConfig);
+            SMB2Session session = new SMB2Session(this, sessionID, userName, machineName, sessionKey, accessToken, signingRequired, signingKey, m_leaseConfig, m_leaseManager);
             lock (m_sessions)
             {
                 m_sessions.TryAdd(sessionID, session);

@@ -320,12 +320,19 @@ namespace SMBLibrary.SMB2
             {
                 if (Data.Length > 0)
                 {
-                    int paddedNameLength = (int)Math.Ceiling((double)(Name.Length * 2) / 8) * 8;
+                    // Name is ANSI (1 byte per char) in SMB2 Create Context?
+                    // MS-SMB2 2.2.13.2: Name (variable): A buffer containing the name of the create context.
+                    // "The name MUST be 8-byte aligned."
+                    // "DataOffset ... to the 8-byte aligned data payload"
+                    // Wait, Name is usually 4 bytes (e.g. "RqLs").
+                    // Padding is needed after Name to align Data.
+                    
+                    int paddedNameLength = (int)Math.Ceiling((double)Name.Length / 8) * 8;
                     return FixedLength + paddedNameLength + Data.Length;
                 }
                 else
                 {
-                    return FixedLength + Name.Length * 2;
+                    return FixedLength + Name.Length;
                 }
             }
         }

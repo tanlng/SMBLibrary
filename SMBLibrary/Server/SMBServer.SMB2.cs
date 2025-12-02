@@ -124,7 +124,8 @@ namespace SMBLibrary.Server
                     SMB2Command response = NegotiateHelper.GetNegotiateResponse(request, m_securityProvider, state, m_transport, m_serverGuid, m_serverStartTime, m_enableSMB3, supportsLeasing);
                     if (state.Dialect != SMBDialect.NotSet)
                     {
-                        state = new SMB2ConnectionState(state, m_leaseConfig);
+                        // Pass the global LeaseManager to the connection state
+                        state = new SMB2ConnectionState(state, m_leaseConfig, m_leaseManager);
                         m_connectionManager.AddConnection(state);
                     }
                     return response;
@@ -195,6 +196,10 @@ namespace SMBLibrary.Server
                     m_securityProvider.DeleteSecurityContext(ref session.SecurityContext.AuthenticationContext);
                     state.RemoveSession(command.Header.SessionID);
                     return new LogoffResponse();
+                }
+                else if (command is LeaseBreakResponse)
+                {
+                    return session.ProcessLeaseBreakResponse((LeaseBreakResponse)command);
                 }
                 else if (command.Header.IsAsync)
                 {

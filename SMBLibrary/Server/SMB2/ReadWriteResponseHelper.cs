@@ -71,6 +71,20 @@ namespace SMBLibrary.Server.SMB2
                 state.LogToServer(Severity.Verbose, "Write to '{0}{1}' failed. NTStatus: {2}. (FileId: {3})", share.Name, openFile.Path, writeStatus, request.FileId.Volatile);
                 return new ErrorResponse(request.CommandName, writeStatus);
             }
+
+            // Break leases on write
+            if (state.LeaseManager != null)
+            {
+                try
+                {
+                    state.LeaseManager.BreakLeases(openFile.Path);
+                }
+                catch (Exception ex)
+                {
+                    state.LogToServer(Severity.Error, "Failed to break leases for path: {0}. Error: {1}", openFile.Path, ex.Message);
+                }
+            }
+
             WriteResponse response = new WriteResponse();
             response.Count = (uint)numberOfBytesWritten;
             return response;

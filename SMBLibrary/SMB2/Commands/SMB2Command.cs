@@ -111,6 +111,8 @@ namespace SMBLibrary.SMB2
                     return new QueryInfoRequest(buffer, offset);
                 case SMB2CommandName.SetInfo:
                     return new SetInfoRequest(buffer, offset);
+                case SMB2CommandName.OplockBreak:
+                    return new LeaseBreakResponse(buffer, offset);
                 default:
                     throw new InvalidDataException("Invalid SMB2 command 0x" + ((ushort)commandName).ToString("X4"));
             }
