@@ -103,7 +103,8 @@ namespace SMBLibrary.Server
         /// </summary>
         private void OnLeaseBreakRequested(object sender, LeaseBreakEventArgs e)
         {
-            LogToServer(Severity.Debug, "[SMB2Session] OnLeaseBreakRequested for LeaseKey: {0}, SessionID: {1}", e.LeaseKey, m_sessionID);
+            LogToServer(Severity.Information, "[SMB2Session] ⚡ OnLeaseBreakRequested TRIGGERED for LeaseKey: {0}, SessionID: {1}, Thread: {2}", 
+                e.LeaseKey, m_sessionID, System.Threading.Thread.CurrentThread.ManagedThreadId);
             if (m_leaseManager == null)
                 return;
 
@@ -157,8 +158,8 @@ namespace SMBLibrary.Server
             {
                 // Log detailed key info
                 byte[] keyBytes = leaseKey.ToByteArray();
-                LogToServer(Severity.Debug, "[SMB2Session] Sending LeaseBreak. Key (Guid): {0}, Key (Bytes): {1}", 
-                    leaseKey, BitConverter.ToString(keyBytes));
+                LogToServer(Severity.Information, "[SMB2Session] 📤 SendLeaseBreakNotification START. Key: {0}, Reason: {1}, Thread: {2}", 
+                    leaseKey, reason, System.Threading.Thread.CurrentThread.ManagedThreadId);
 
                 // Create lease break request
                 var leaseBreakRequest = new LeaseBreakRequest
@@ -225,10 +226,9 @@ namespace SMBLibrary.Server
                 packet.Trailer = SMB2Command.GetCommandChainBytes(responseChain, m_signingKey, SMB2Dialect.SMB2xx);
                 
                 // Send through connection state
-                LogToServer(Severity.Debug, "[SMB2Session] Calling m_connection.Send for LeaseBreak. Key: {0}", leaseKey);
+                LogToServer(Severity.Information, "[SMB2Session] 🚀 m_connection.Send() BEFORE. Key: {0}", leaseKey);
                 m_connection.Send(packet);
-                
-                LogToServer(Severity.Debug, "Sent lease break notification for lease {0}, reason: {1}", leaseKey, reason);
+                LogToServer(Severity.Information, "[SMB2Session] ✅ m_connection.Send() AFTER. Lease Break sent for {0}, reason: {1}", leaseKey, reason);
             }
             catch (Exception ex)
             {

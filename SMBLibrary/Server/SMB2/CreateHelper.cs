@@ -36,9 +36,10 @@ namespace SMBLibrary.Server.SMB2
                 }
             }
 
-            // Break leases if file was modified/created
-            // We do this BEFORE creating the file to ensure the client receives the Lease Break
-            // before the Notification (which might be triggered by CreateFile).
+            // Break leases BEFORE creating/modifying the file
+            // This allows other clients to flush their caches before we make changes
+            // For FILE_CREATE/FILE_OPEN_IF: Break parent directory's Directory Lease (if any)
+            // For FILE_OVERWRITE/FILE_SUPERSEDE: Break target file's File Lease (if any)
             if (state.LeaseManager != null)
             {
                 bool isWrite = false;
@@ -55,7 +56,12 @@ namespace SMBLibrary.Server.SMB2
                 {
                     try
                     {
+                        state.LogToServer(Severity.Information, "[CreateHelper] 🔨 BreakLeases() BEFORE for path: {0}, Thread: {1}", 
+                            path, System.Threading.Thread.CurrentThread.ManagedThreadId);
+                        // Break existing leases on the target path
+                        // This notifies other clients BEFORE we actually create/modify the file
                         state.LeaseManager.BreakLeases(path);
+                        state.LogToServer(Severity.Information, "[CreateHelper] ✅ BreakLeases() AFTER for path: {0}", path);
                     }
                     catch (Exception ex)
                     {
@@ -68,7 +74,9 @@ namespace SMBLibrary.Server.SMB2
             FileStatus fileStatus;
             // GetFileInformation/FileNetworkOpenInformation requires FILE_READ_ATTRIBUTES
             AccessMask desiredAccess = request.DesiredAccess | (AccessMask)FileAccessMask.FILE_READ_ATTRIBUTES;
+            state.LogToServer(Severity.Information, "[CreateHelper] 📁 CreateFile() BEFORE for path: {0}", path);
             NTStatus createStatus = share.FileStore.CreateFile(out handle, out fileStatus, path, desiredAccess, request.FileAttributes, request.ShareAccess, request.CreateDisposition, request.CreateOptions, session.SecurityContext);
+            state.LogToServer(Severity.Information, "[CreateHelper] ✅ CreateFile() AFTER for path: {0}, Status: {1}", path, createStatus);
             if (createStatus != NTStatus.STATUS_SUCCESS)
             {
                 state.LogToServer(Severity.Verbose, "Create: Opening '{0}{1}' failed. NTStatus: {2}.", share.Name, path, createStatus);

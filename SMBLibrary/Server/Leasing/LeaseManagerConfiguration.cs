@@ -49,7 +49,7 @@ namespace SMBLibrary.Server.Leasing
         {
             if (MaxLeases <= 0)
                 throw new ArgumentException("MaxLeases must be positive");
-            if (DefaultLeaseDuration <= TimeSpan.Zero)
+            if (DefaultLeaseDuration < TimeSpan.Zero)
                 throw new ArgumentException("DefaultLeaseDuration must be positive");
             if (LeaseBreakTimeout <= TimeSpan.Zero)
                 throw new ArgumentException("LeaseBreakTimeout must be positive");

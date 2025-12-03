@@ -175,6 +175,18 @@ namespace SMBLibrary.Server.Leasing
             try
             {
                 AddToIndexes(leaseInfo);
+                
+                // Detailed logging for lease creation
+                LogHandler?.Invoke(Severity.Information, 
+                    $"[LeaseManager] 🎁 Lease Created:\n" +
+                    $"    Key: {leaseInfo.LeaseKey}\n" +
+                    $"    Path: '{leaseInfo.FilePath}'\n" +
+                    $"    State: {leaseInfo.State}\n" +
+                    $"    Session: {leaseInfo.SessionId}\n" +
+                    $"    Duration: {effectiveDuration.TotalSeconds}s\n" +
+                    $"    ExpiresAt: {leaseInfo.ExpirationTime:HH:mm:ss.fff}\n" +
+                    $"    Total Active Leases: {m_leaseRegistry.Count}");
+                
                 LeaseCreated?.Invoke(this, new LeaseCreatedEventArgs(leaseInfo));
                 return leaseInfo;
             }
@@ -187,11 +199,28 @@ namespace SMBLibrary.Server.Leasing
 
         private TimeSpan GetEffectiveDuration(LeaseRequest request)
         {
-            if (request.LeaseDuration > TimeSpan.Zero && request.LeaseDuration < m_config.DefaultLeaseDuration)
+            TimeSpan duration;
+            if (request.LeaseDuration > TimeSpan.Zero)
             {
-                return request.LeaseDuration;
+                if (m_config.DefaultLeaseDuration == TimeSpan.Zero || request.LeaseDuration < m_config.DefaultLeaseDuration)
+                {
+                    duration = request.LeaseDuration;
+                }
+                else
+                {
+                    duration = m_config.DefaultLeaseDuration;
+                }
             }
-            return m_config.DefaultLeaseDuration;
+            else
+            {
+                duration = m_config.DefaultLeaseDuration;
+            }
+            
+            LogHandler?.Invoke(Severity.Information, 
+                $"[LeaseManager] ⏱️ Lease Duration: Client requested={request.LeaseDuration.TotalSeconds}s, " +
+                $"Config default={m_config.DefaultLeaseDuration.TotalSeconds}s, Effective={duration.TotalSeconds}s");
+            
+            return duration;
         }
 
         /// <summary>
@@ -208,6 +237,14 @@ namespace SMBLibrary.Server.Leasing
 
             if (leaseInfo.IsExpired)
                 throw new LeaseExpiredException(leaseKey);
+
+            // Check if lease is already breaking - skip duplicate break
+            if (leaseInfo.IsBreaking)
+            {
+                LogHandler?.Invoke(Severity.Information, 
+                    $"[LeaseManager] ⚠️ Lease {leaseKey} is already breaking (Reason: {leaseInfo.PendingBreakReason}), skipping duplicate break request");
+                return;
+            }
 
             // Increment Epoch for Lease Break (V2 requirement)
             leaseInfo.Epoch++;
@@ -349,47 +386,83 @@ namespace SMBLibrary.Server.Leasing
             }
 
             var activeLeases = GetActiveLeases();
-            LogHandler?.Invoke(Severity.Verbose, $"[LeaseManager] Checking {activeLeases.Count.ToString()} active leases against path: {path} (Parent: {parentPath})");
+            LogHandler?.Invoke(Severity.Information, $"[LeaseManager] 🔍 BreakLeases: Checking {activeLeases.Count} active leases");
+            LogHandler?.Invoke(Severity.Information, $"[LeaseManager] 🔍 Target path: '{path}'");
+            LogHandler?.Invoke(Severity.Information, $"[LeaseManager] 🔍 Parent path: '{parentPath}'");
             
+            // Log all active leases for debugging
+            if (activeLeases.Count > 0)
+            {
+                LogHandler?.Invoke(Severity.Information, $"[LeaseManager] 📋 Active Leases List:");
+                for (int i = 0; i < activeLeases.Count; i++)
+                {
+                    var lease = activeLeases[i];
+                    LogHandler?.Invoke(Severity.Information, 
+                        $"[LeaseManager]   [{i+1}] Key={lease.LeaseKey}, Path='{lease.FilePath}', " +
+                        $"State={lease.State}, Session={lease.SessionId}, " +
+                        $"Expired={lease.IsExpired}, ExpiresAt={lease.ExpirationTime:HH:mm:ss.fff}");
+                }
+            }
+
             foreach (var lease in activeLeases)
             {
                 bool shouldBreak = false;
                 string leasePath = lease.FilePath;
-                if (string.IsNullOrEmpty(leasePath)) continue;
+                
+                if (string.IsNullOrEmpty(leasePath))
+                {
+                    LogHandler?.Invoke(Severity.Warning, $"[LeaseManager] ⚠️ Skipping lease {lease.LeaseKey} - FilePath is null/empty");
+                    continue;
+                }
 
                 // Normalize lease path
+                string originalLeasePath = leasePath;
                 leasePath = leasePath.Replace('/', '\\');
                 if (!leasePath.StartsWith("\\")) leasePath = "\\" + leasePath;
+
+                LogHandler?.Invoke(Severity.Information, 
+                    $"[LeaseManager] 🔎 Comparing Lease {lease.LeaseKey}:\n" +
+                    $"    Original: '{originalLeasePath}'\n" +
+                    $"    Normalized: '{leasePath}'\n" +
+                    $"    Target: '{path}'\n" +
+                    $"    Parent: '{parentPath}'");
 
                 // 1. Exact match (File Lease or Directory Lease on the target itself)
                 if (string.Equals(leasePath, path, StringComparison.OrdinalIgnoreCase))
                 {
                     shouldBreak = true;
-                    LogHandler?.Invoke(Severity.Information, $"[LeaseManager] Match found (Exact): {leasePath}, Session: {lease.SessionId.ToString()}");
+                    LogHandler?.Invoke(Severity.Information, $"[LeaseManager] ✅ Match found (Exact): {leasePath}, Session: {lease.SessionId.ToString()}");
                 }
                 // 2. Parent match (Directory Lease on the parent of the target)
                 else if (parentPath != null && string.Equals(leasePath, parentPath, StringComparison.OrdinalIgnoreCase))
                 {
                     shouldBreak = true;
-                    LogHandler?.Invoke(Severity.Information, $"[LeaseManager] Match found (Parent): {leasePath} is parent of {path}, Session: {lease.SessionId.ToString()}");
+                    LogHandler?.Invoke(Severity.Information, $"[LeaseManager] ✅ Match found (Parent): {leasePath} is parent of {path}, Session: {lease.SessionId.ToString()}");
+                }
+                else
+                {
+                    LogHandler?.Invoke(Severity.Information, $"[LeaseManager] ❌ No match for lease path: {leasePath}");
                 }
 
                 if (shouldBreak)
                 {
                     try
                     {
-                        LogHandler?.Invoke(Severity.Information, $"[LeaseManager] Breaking lease {lease.LeaseKey.ToString()} for path {leasePath}, Session: {lease.SessionId.ToString()}");
+                        LogHandler?.Invoke(Severity.Information, $"[LeaseManager] 🔨 Breaking lease {lease.LeaseKey.ToString()} for path {leasePath}, Session: {lease.SessionId.ToString()}");
                         // Break the lease
                         BreakLease(lease.LeaseKey, LeaseBreakReason.WriteRequest);
                     }
                     catch (Exception ex)
                     {
-                        LogHandler?.Invoke(Severity.Error, $"[LeaseManager] Error breaking lease: {ex.Message}");
+                        LogHandler?.Invoke(Severity.Error, $"[LeaseManager] ❌ Error breaking lease: {ex.Message}");
                     }
                 }
             }
+            
+            LogHandler?.Invoke(Severity.Information, $"[LeaseManager] ✅ BreakLeases completed for path: {path}");
         }
 
+        /// <summary>
         /// Timer callback for cleanup
         /// </summary>
         private void CleanupExpiredLeasesCallback(object state)
@@ -463,11 +536,28 @@ namespace SMBLibrary.Server.Leasing
                 if (m_leaseRegistry.TryRemove(leaseKey, out var leaseInfo))
                 {
                     RemoveFromIndexes(leaseInfo);
+                    
+                    // Detailed logging for expired leases
+                    LogHandler?.Invoke(Severity.Information, 
+                        $"[LeaseManager] ⏰ Lease Expired and Removed:\n" +
+                        $"    Key: {leaseInfo.LeaseKey}\n" +
+                        $"    Path: '{leaseInfo.FilePath}'\n" +
+                        $"    Session: {leaseInfo.SessionId}\n" +
+                        $"    Expired at: {leaseInfo.ExpirationTime:HH:mm:ss.fff}\n" +
+                        $"    Age: {(DateTime.UtcNow - leaseInfo.CreatedTime).TotalSeconds:F1}s\n" +
+                        $"    Remaining Active Leases: {m_leaseRegistry.Count}");
+                    
                     if (m_config.EnableLeaseExpirationEvents)
                     {
                         LeaseExpired?.Invoke(this, new LeaseExpiredEventArgs(leaseInfo));
                     }
                 }
+            }
+
+            if (expiredLeases.Count > 0)
+            {
+                LogHandler?.Invoke(Severity.Information, 
+                    $"[LeaseManager] 🧹 Cleanup: Removed {expiredLeases.Count} expired lease(s), {m_leaseRegistry.Count} remain active");
             }
 
             return expiredLeases.Count;
