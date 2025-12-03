@@ -36,10 +36,8 @@ namespace SMBLibrary.Server.SMB2
                 }
             }
 
-            // Break leases BEFORE creating/modifying the file
+            // Break leases BEFORE creating/modifying the file using LeaseBreakCoordinator
             // This allows other clients to flush their caches before we make changes
-            // For FILE_CREATE/FILE_OPEN_IF: Break parent directory's Directory Lease (if any)
-            // For FILE_OVERWRITE/FILE_SUPERSEDE: Break target file's File Lease (if any)
             if (state.LeaseManager != null)
             {
                 bool isWrite = false;
@@ -52,26 +50,12 @@ namespace SMBLibrary.Server.SMB2
                     isWrite = true;
                 }
 
-                // Check if this is a directory creation (Windows Server does NOT break leases for directory creation)
                 bool isDirectory = (request.CreateOptions & CreateOptions.FILE_DIRECTORY_FILE) != 0;
 
-                // Only break leases for FILE creation, NOT directory creation
-                // Windows Server behavior: Directory creation only sends NotifyChange, no Lease Break
-                if (isWrite && !isDirectory)
+                if (isWrite)
                 {
-                    try
-                    {
-                        state.LogToServer(Severity.Information, "[CreateHelper] 🔨 BreakLeases() for FILE creation: {0}, Thread: {1}", 
-                            path, System.Threading.Thread.CurrentThread.ManagedThreadId);
-                        // Break existing leases on the target path
-                        // This notifies other clients BEFORE we actually create/modify the file
-                        state.LeaseManager.BreakLeases(path);
-                        state.LogToServer(Severity.Information, "[CreateHelper] ✅ BreakLeases() completed for: {0}", path);
-                    }
-                    catch (Exception ex)
-                    {
-                        state.LogToServer(Severity.Error, "Failed to break leases for path: {0}. Error: {1}", path, ex.Message);
-                    }
+                    // Use LeaseBreakHelper for centralized lease management
+                    LeaseBreakHelper.BreakLeasesOnFileCreate(state.LeaseManager, state.LogToServer, path, request.Header.SessionID, isDirectory);
                 }
             }
 

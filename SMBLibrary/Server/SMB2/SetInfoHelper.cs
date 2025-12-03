@@ -85,54 +85,10 @@ namespace SMBLibrary.Server.SMB2
                     }
                 }
 
-                // Break leases on SetFileInformation
+                // Break leases on SetFileInformation using LeaseBreakHelper
                 // We do this BEFORE setting file information to ensure the client receives the Lease Break
                 // before the Notification (which might be triggered by SetFileInformation).
-                // 
-                // IMPORTANT: Only break leases for operations that affect directory contents or file visibility:
-                // - Rename: Changes file name, affects directory listing
-                // - Delete: Removes file, affects directory listing
-                // - NOT for metadata changes (FileAllocationInformation, FileBasicInformation, etc.)
-                if (state.LeaseManager != null)
-                {
-                    try
-                    {
-                        if (information is FileRenameInformationType2 renameInfo)
-                        {
-                            // Rename: affects directory contents, break leases on both source and destination
-                            state.LogToServer(Severity.Debug, "[SetInfoHelper] Breaking leases for RENAME: '{0}' -> '{1}'", 
-                                openFile.Path, renameInfo.FileName);
-                            
-                            // Break lease on source path
-                            state.LeaseManager.BreakLeases(openFile.Path);
-
-                            // Break lease on destination path
-                            string newPath = renameInfo.FileName;
-                            if (!newPath.StartsWith(@"\"))
-                            {
-                                newPath = @"\" + newPath;
-                            }
-                            state.LeaseManager.BreakLeases(newPath);
-                        }
-                        else if (information is FileDispositionInformation dispositionInfo && dispositionInfo.DeletePending)
-                        {
-                            // Delete: affects directory contents, break lease
-                            state.LogToServer(Severity.Debug, "[SetInfoHelper] Breaking leases for DELETE: '{0}'", openFile.Path);
-                            state.LeaseManager.BreakLeases(openFile.Path);
-                        }
-                        else
-                        {
-                            // Metadata changes (FileAllocationInformation, FileBasicInformation, etc.)
-                            // Do NOT break leases - these don't affect directory contents
-                            state.LogToServer(Severity.Verbose, "[SetInfoHelper] Skipping lease break for metadata change: {0} on '{1}'", 
-                                request.FileInformationClass, openFile.Path);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        state.LogToServer(Severity.Error, "Failed to break leases in SetFileInformation. Error: {0}", ex.Message);
-                    }
-                }
+                LeaseBreakHelper.BreakLeasesOnSetFileInformation(state.LeaseManager, state.LogToServer, information, openFile.Path, request.Header.SessionID);
 
                 NTStatus status = share.FileStore.SetFileInformation(openFile.Handle, information);
                 if (status != NTStatus.STATUS_SUCCESS)

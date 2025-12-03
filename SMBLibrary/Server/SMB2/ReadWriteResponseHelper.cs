@@ -64,20 +64,10 @@ namespace SMBLibrary.Server.SMB2
                     return new ErrorResponse(request.CommandName, NTStatus.STATUS_ACCESS_DENIED);
                 }
             }
-            // Break leases on write
+            // Break leases on write using LeaseBreakHelper
             // We do this BEFORE writing to the file to ensure the client receives the Lease Break
             // before the Notification (which might be triggered by WriteFile).
-            if (state.LeaseManager != null)
-            {
-                try
-                {
-                    state.LeaseManager.BreakLeases(openFile.Path);
-                }
-                catch (Exception ex)
-                {
-                    state.LogToServer(Severity.Error, "Failed to break leases for path: {0}. Error: {1}", openFile.Path, ex.Message);
-                }
-            }
+            LeaseBreakHelper.BreakLeasesOnFileWrite(state.LeaseManager, state.LogToServer, openFile.Path, request.Header.SessionID);
 
             int numberOfBytesWritten;
             NTStatus writeStatus = share.FileStore.WriteFile(out numberOfBytesWritten, openFile.Handle, (long)request.Offset, request.Data);

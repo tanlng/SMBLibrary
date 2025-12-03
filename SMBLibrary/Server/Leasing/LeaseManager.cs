@@ -228,7 +228,18 @@ namespace SMBLibrary.Server.Leasing
         /// </summary>
         public void BreakLease(Guid leaseKey, LeaseBreakReason reason)
         {
-            Console.WriteLine($"[LeaseManager] BreakLease called for Key: {leaseKey}, Reason: {reason}");
+            BreakLease(leaseKey, reason, LeaseState.None);
+        }
+
+        /// <summary>
+        /// Break a lease with specified new lease state
+        /// </summary>
+        /// <param name="leaseKey">The lease key to break</param>
+        /// <param name="reason">The reason for breaking the lease</param>
+        /// <param name="newLeaseState">The new lease state (None for complete break, RH for downgrade, etc.)</param>
+        public void BreakLease(Guid leaseKey, LeaseBreakReason reason, LeaseState newLeaseState)
+        {
+            Console.WriteLine($"[LeaseManager] BreakLease called for Key: {leaseKey}, Reason: {reason}, NewState: {newLeaseState}");
             if (m_disposed)
                 throw new ObjectDisposedException(nameof(LeaseManager));
 
@@ -255,7 +266,7 @@ namespace SMBLibrary.Server.Leasing
 
             if (m_config.EnableLeaseBreakNotifications)
             {
-                LeaseBreakRequested?.Invoke(this, new LeaseBreakEventArgs(leaseKey, reason));
+                LeaseBreakRequested?.Invoke(this, new LeaseBreakEventArgs(leaseKey, reason, newLeaseState));
             }
         }
 
@@ -367,7 +378,18 @@ namespace SMBLibrary.Server.Leasing
         /// </summary>
         public void BreakLeases(string path)
         {
-            LogHandler?.Invoke(Severity.Debug, $"[LeaseManager] BreakLeases requested for: {path}");
+            BreakLeases(path, LeaseState.None, null);
+        }
+
+        /// <summary>
+        /// Break leases for a specific path with specified new lease state
+        /// </summary>
+        /// <param name="path">The file or directory path</param>
+        /// <param name="newLeaseState">The new lease state to downgrade to (None for complete break)</param>
+        /// <param name="excludeSessionId">Optional: Session ID to exclude from breaking (for same-client operations)</param>
+        public void BreakLeases(string path, LeaseState newLeaseState, ulong? excludeSessionId = null)
+        {
+            LogHandler?.Invoke(Severity.Debug, $"[LeaseManager] BreakLeases requested for: {path}, NewState: {newLeaseState}, ExcludeSession: {excludeSessionId}");
             if (string.IsNullOrEmpty(path)) return;
 
             // Normalize path separators
@@ -425,32 +447,27 @@ namespace SMBLibrary.Server.Leasing
                     $"    Original: '{originalLeasePath}'\n" +
                     $"    Normalized: '{leasePath}'\n" +
                     $"    Target: '{path}'\n" +
-                    $"    Parent: '{parentPath}'");
+                    $"    Parent: '{parentPath}'\n" +
+                    $"    Session: {lease.SessionId}, ExcludeSession: {excludeSessionId}");
+
+                // Skip if this is the same session (client's own operation)
+                if (excludeSessionId.HasValue && lease.SessionId == excludeSessionId.Value)
+                {
+                    LogHandler?.Invoke(Severity.Information, 
+                        $"[LeaseManager] ⏭️ Skipping lease {lease.LeaseKey} - Same session (client's own operation)");
+                    continue;
+                }
 
                 // 1. Exact match (File Lease or Directory Lease on the target itself)
                 if (string.Equals(leasePath, path, StringComparison.OrdinalIgnoreCase))
                 {
-                    shouldBreak = true;
-                    LogHandler?.Invoke(Severity.Information, $"[LeaseManager] ✅ Match found (Exact): {leasePath}, Session: {lease.SessionId.ToString()}");
-                }
-                // 2. Parent match (Directory Lease on the parent of the target)
-                else if (parentPath != null && string.Equals(leasePath, parentPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    shouldBreak = true;
-                    LogHandler?.Invoke(Severity.Information, $"[LeaseManager] ✅ Match found (Parent): {leasePath} is parent of {path}, Session: {lease.SessionId.ToString()}");
-                }
-                else
-                {
-                    LogHandler?.Invoke(Severity.Information, $"[LeaseManager] ❌ No match for lease path: {leasePath}");
-                }
-
-                if (shouldBreak)
-                {
                     try
                     {
-                        LogHandler?.Invoke(Severity.Information, $"[LeaseManager] 🔨 Breaking lease {lease.LeaseKey.ToString()} for path {leasePath}, Session: {lease.SessionId.ToString()}");
-                        // Break the lease
-                        BreakLease(lease.LeaseKey, LeaseBreakReason.WriteRequest);
+                        LogHandler?.Invoke(Severity.Information, 
+                            $"[LeaseManager] 🔨 Breaking lease {lease.LeaseKey.ToString()} for path {leasePath}, " +
+                            $"Session: {lease.SessionId.ToString()}, NewState: {newLeaseState}");
+                        // Break the lease with specified new state
+                        BreakLease(lease.LeaseKey, LeaseBreakReason.WriteRequest, newLeaseState);
                     }
                     catch (Exception ex)
                     {
@@ -460,6 +477,46 @@ namespace SMBLibrary.Server.Leasing
             }
             
             LogHandler?.Invoke(Severity.Information, $"[LeaseManager] ✅ BreakLeases completed for path: {path}");
+        }
+
+        /// <summary>
+        /// Break leases for the parent directory of the specified path
+        /// 中断指定路径的父目录租约
+        /// </summary>
+        /// <param name="path">File or directory path</param>
+        /// <param name="newLeaseState">New lease state after breaking</param>
+        /// <param name="excludeSessionId">Session ID to exclude from breaking (optional)</param>
+        public void BreakParentDirectoryLeases(string path, LeaseState newLeaseState, ulong? excludeSessionId = null)
+        {
+            if (string.IsNullOrEmpty(path)) return;
+
+            // Normalize path
+            path = path.Replace('/', '\\');
+            if (!path.StartsWith("\\")) path = "\\" + path;
+
+            // Calculate parent path
+            string parentPath = null;
+            int lastSlash = path.LastIndexOf('\\');
+            if (lastSlash > 0) // Not root
+            {
+                parentPath = path.Substring(0, lastSlash);
+            }
+            else if (lastSlash == 0 && path.Length > 1) // File in root
+            {
+                parentPath = "\\";
+            }
+
+            if (string.IsNullOrEmpty(parentPath))
+            {
+                LogHandler?.Invoke(Severity.Debug, $"[LeaseManager] BreakParentDirectoryLeases: No parent directory for path: {path}");
+                return;
+            }
+
+            LogHandler?.Invoke(Severity.Information, $"[LeaseManager] 📁 Breaking parent directory leases for: {parentPath} (child: {path})");
+            
+            // Break leases on the parent directory path
+            // Note: breakParentDirectory=false to avoid recursive parent breaking
+            BreakLeases(parentPath, newLeaseState, excludeSessionId);
         }
 
         /// <summary>
