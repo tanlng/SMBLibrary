@@ -52,16 +52,21 @@ namespace SMBLibrary.Server.SMB2
                     isWrite = true;
                 }
 
-                if (isWrite)
+                // Check if this is a directory creation (Windows Server does NOT break leases for directory creation)
+                bool isDirectory = (request.CreateOptions & CreateOptions.FILE_DIRECTORY_FILE) != 0;
+
+                // Only break leases for FILE creation, NOT directory creation
+                // Windows Server behavior: Directory creation only sends NotifyChange, no Lease Break
+                if (isWrite && !isDirectory)
                 {
                     try
                     {
-                        state.LogToServer(Severity.Information, "[CreateHelper] 🔨 BreakLeases() BEFORE for path: {0}, Thread: {1}", 
+                        state.LogToServer(Severity.Information, "[CreateHelper] 🔨 BreakLeases() for FILE creation: {0}, Thread: {1}", 
                             path, System.Threading.Thread.CurrentThread.ManagedThreadId);
                         // Break existing leases on the target path
                         // This notifies other clients BEFORE we actually create/modify the file
                         state.LeaseManager.BreakLeases(path);
-                        state.LogToServer(Severity.Information, "[CreateHelper] ✅ BreakLeases() AFTER for path: {0}", path);
+                        state.LogToServer(Severity.Information, "[CreateHelper] ✅ BreakLeases() completed for: {0}", path);
                     }
                     catch (Exception ex)
                     {
