@@ -147,6 +147,30 @@
 
 ---
 
-**最后更新**: 2025-01-10  
+## ⚠️ 关键架构约束 (2025-12-03 更新)
+
+### LeaseManager 必须全局共享 ⭐
+
+**重要**: LeaseManager 必须是**全局单例**，所有 Session 共享同一个实例。
+
+**详细说明**: 请参见 [lease-architecture.md](lease-architecture.md) 的"关键架构约束"章节
+
+**问题案例**: 
+- 📄 **修复总结**: `../../../../../docs/analysis/messages/【同步2】win10，另外一台服务器新建子文件夹，win10无法自动更新/3. 修复总结.md`
+- **症状**: Win10 客户端无法自动刷新目录
+- **根因**: 每个 Session 独立创建 LeaseManager，导致 Lease Break 无法送达正确的客户端
+
+**快速检查**:
+```csharp
+// ✅ 正确：SMBServer 传入全局 LeaseManager
+state = new SMB2ConnectionState(state, m_leaseConfig, m_leaseManager);
+
+// ❌ 错误：未传入全局实例
+state = new SMB2ConnectionState(state, m_leaseConfig);
+```
+
+---
+
+**最后更新**: 2025-12-03  
 **维护者**: SMBLibrary 项目团队
 

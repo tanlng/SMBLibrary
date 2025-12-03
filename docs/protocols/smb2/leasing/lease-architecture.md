@@ -372,3 +372,182 @@ private Dictionary<FileID, CacheMetadata> m_cacheMetadata;
 
 该架构设计为后续的具体实现提供了清晰的指导，确保租约协议能够高效、安全、可靠地集成到 SMBLibrary 中。
 
+---
+
+## ⚠️ 关键架构约束 (2025-12-03 更新)
+
+### LeaseManager 必须全局共享
+
+**架构要求**: ⭐ **LeaseManager 必须是全局单例，所有 Session 共享同一个实例**
+
+#### 正确的实现
+
+```csharp
+// SMBServer.cs - 创建全局 LeaseManager
+public class SMBServer
+{
+    private LeaseManager m_leaseManager;  // 全局单例
+    
+    public void Start(...)
+    {
+        if (m_leaseConfig != null)
+        {
+            m_leaseManager = new LeaseManager(m_leaseConfig);
+            m_leaseManager.LogHandler = (severity, message) => Log(severity, message);
+        }
+    }
+    
+    private void ConnectRequestCallback(...)
+    {
+        // ✅ 传入全局 LeaseManager
+        state = new SMB2ConnectionState(state, m_leaseConfig, m_leaseManager);
+    }
+}
+```
+
+```csharp
+// SMB2ConnectionState.cs - 接收并持有全局引用
+public SMB2ConnectionState(ConnectionState state, 
+    LeaseManagerConfiguration leaseConfig = null, 
+    LeaseManager leaseManager = null) : base(state)
+{
+    m_leaseConfig = leaseConfig;
+    m_leaseManager = leaseManager;  // 接收全局实例
+    
+    // ⚠️ 不要在这里设置 LogHandler！
+    // 多个 ConnectionState 会覆盖全局 LogHandler
+}
+```
+
+```csharp
+// SMB2Session.cs - 使用传入的全局 LeaseManager
+private void InitializeLeaseManager(
+    LeaseManagerConfiguration leaseConfig, 
+    LeaseManager leaseManager)
+{
+    if (leaseManager != null)
+    {
+        // ✅ 使用传入的全局 LeaseManager
+        m_leaseManager = leaseManager;
+    }
+    else
+    {
+        // ❌ 不应该走这个分支（会导致隔离问题）
+        m_leaseManager = new LeaseManager(leaseConfig);
+    }
+    
+    // 订阅全局事件
+    m_leaseManager.LeaseBreakRequested += OnLeaseBreakRequested;
+    m_leaseManager.LeaseExpired += OnLeaseExpired;
+}
+```
+
+#### 错误的实现（已修复）
+
+```csharp
+// ❌ 错误：每个 Session 创建独立 LeaseManager
+private void InitializeLeaseManager(LeaseManagerConfiguration leaseConfig, 
+    LeaseManager leaseManager)
+{
+    // 问题：当 leaseManager == null 时创建新实例
+    if (leaseManager != null)
+    {
+        m_leaseManager = leaseManager;
+    }
+    else
+    {
+        m_leaseManager = new LeaseManager(leaseConfig);  // ❌ 导致 Lease 隔离
+    }
+}
+
+// ❌ 错误：未传入全局 LeaseManager
+state = new SMB2ConnectionState(state, m_leaseConfig);  // 缺少第三个参数
+
+// ❌ 错误：覆盖全局 LogHandler
+if (m_leaseManager != null)
+{
+    m_leaseManager.LogHandler = (severity, message) => LogToServer(severity, message);
+    // 问题：后创建的连接会覆盖之前的 LogHandler
+}
+```
+
+#### 问题影响
+
+如果 LeaseManager 不是全局共享的，会导致：
+
+1. **Lease 注册隔离**:
+   - 客户端 A 在 Session 1 的 LeaseManager 中注册 Lease
+   - 客户端 B 在 Session 2 的 LeaseManager 中注册 Lease
+   - 两个 LeaseManager 互不知道对方的 Lease
+
+2. **Lease Break 失效**:
+   - 客户端 B 创建文件，触发 Session 2 的 LeaseManager.BreakLeases()
+   - Session 2 的 LeaseManager 只检查自己的 Registry
+   - **不知道** Session 1 有相关 Lease
+   - 客户端 A **收不到** Lease Break 通知
+
+3. **目录不自动刷新**:
+   - 客户端 A 的缓存不失效
+   - 客户端 A 看不到新文件
+   - 用户必须手动刷新 (F5)
+
+#### 修复历史
+
+**修复日期**: 2025-12-03  
+**问题**: Win10 客户端无法自动刷新目录  
+**详细文档**: `docs/analysis/messages/【同步2】win10，另外一台服务器新建子文件夹，win10无法自动更新/3. 修复总结.md`
+
+**修复要点**:
+1. `SMBServer.cs` (Line 336): 传入 `m_leaseManager` 给 `SMB2ConnectionState`
+2. `SMB2ConnectionState.cs`: 移除 `LogHandler` 覆盖
+3. `SMB2Session.cs`: 使用传入的全局 LeaseManager（逻辑已正确）
+
+#### 验证清单
+
+实现 LeaseManager 时，请确认：
+
+- ✅ SMBServer 创建唯一的 LeaseManager 实例
+- ✅ 所有 SMB2ConnectionState 接收相同的 LeaseManager 引用
+- ✅ 所有 SMB2Session 接收相同的 LeaseManager 引用
+- ✅ LogHandler 只在 SMBServer 层设置一次
+- ✅ 所有 Session 订阅同一个 LeaseManager 的事件
+- ✅ Lease Registry 是全局唯一的 ConcurrentDictionary
+
+#### 测试建议
+
+```csharp
+[Test]
+public void TestGlobalLeaseManagerSharing()
+{
+    var server = new SMBServer();
+    server.Start(...);
+    
+    // 模拟两个客户端连接
+    var state1 = CreateConnectionState(clientA);
+    var state2 = CreateConnectionState(clientB);
+    
+    // 验证共享同一个 LeaseManager
+    Assert.AreSame(state1.LeaseManager, state2.LeaseManager);
+    Assert.AreSame(state1.LeaseManager, server.LeaseManager);
+    
+    // 验证 Lease 跨 Session 可见
+    var session1 = state1.CreateSession(...);
+    var session2 = state2.CreateSession(...);
+    
+    var lease1 = session1.CreateLease(...);
+    
+    // Session 2 应该能看到 Session 1 的 Lease
+    var allLeases = session2.LeaseManager.GetAllLeases();
+    Assert.Contains(lease1, allLeases);
+}
+```
+
+---
+
+## 参考资料
+
+- **修复案例详解**: `../../../../../../docs/analysis/messages/【同步2】win10，另外一台服务器新建子文件夹，win10无法自动更新/`
+- **SMB2 协议规范**: [MS-SMB2] Section 3.3.1.4 - Per Server Lease Table
+- **实现指南**: `../../../guides/implementation/lease-implementation-guide.md`
+- **故障排查**: `../../../guides/troubleshooting/lease-troubleshooting-guide.md`
+
