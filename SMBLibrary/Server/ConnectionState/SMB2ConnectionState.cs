@@ -15,9 +15,12 @@ namespace SMBLibrary.Server
 {
     internal class SMB2ConnectionState : ConnectionState
     {
+        // Global Session ID counter (shared across all connections)
+        private static long s_globalNextSessionID = 0;
+        private static readonly object s_sessionIdLock = new object();
+        
         // Key is SessionID
         private Dictionary<ulong, SMB2Session> m_sessions = new Dictionary<ulong, SMB2Session>();
-        private ulong m_nextSessionID = 1;
         // Key is AsyncID
         private Dictionary<ulong, SMB2AsyncContext> m_pendingRequests = new Dictionary<ulong, SMB2AsyncContext>();
         private ulong m_nextAsyncID = 1;
@@ -30,28 +33,34 @@ namespace SMBLibrary.Server
         {
             m_leaseConfig = leaseConfig;
             m_leaseManager = leaseManager;
-            if (m_leaseManager != null)
-            {
-                m_leaseManager.LogHandler = (severity, message) => LogToServer(severity, message);
-            }
+            // Note: Do NOT set m_leaseManager.LogHandler here!
+            // The global LeaseManager's LogHandler should be set only once in SMBServer,
+            // not overwritten by each ConnectionState.
         }
 
         public ulong? AllocateSessionID()
         {
-            for (ulong offset = 0; offset < UInt64.MaxValue; offset++)
+            lock (s_sessionIdLock)
             {
-                ulong sessionID = (ulong)(m_nextSessionID + offset);
-                if (sessionID == 0 || sessionID == 0xFFFFFFFF)
+                long sessionID;
+                do
                 {
-                    continue;
-                }
-                if (!m_sessions.ContainsKey(sessionID))
-                {
-                    m_nextSessionID = (ulong)(sessionID + 1);
-                    return sessionID;
-                }
+                    sessionID = System.Threading.Interlocked.Increment(ref s_globalNextSessionID);
+                    // Skip invalid Session IDs (0 and 0xFFFFFFFF are reserved)
+                    if (sessionID == 0 || sessionID == 0xFFFFFFFF)
+                    {
+                        continue;
+                    }
+                    // Check if already in use (should be rare with global counter)
+                    if (!m_sessions.ContainsKey((ulong)sessionID))
+                    {
+                        LogToServer(Severity.Debug, $"[SMB2ConnectionState] Allocated SessionID: {sessionID}");
+                        return (ulong)sessionID;
+                    }
+                } while (sessionID < Int64.MaxValue);
+                
+                return null;
             }
-            return null;
         }
 
         public SMB2Session CreateSession(ulong sessionID, string userName, string machineName, byte[] sessionKey, object accessToken, bool signingRequired, byte[] signingKey)

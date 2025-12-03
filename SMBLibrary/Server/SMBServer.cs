@@ -333,7 +333,7 @@ namespace SMBLibrary.Server
                             SMB2Command response = SMB2.NegotiateHelper.GetNegotiateResponse(smb2Dialects, m_securityProvider, state, m_transport, m_serverGuid, m_serverStartTime, supportsLeasing);
                             if (state.Dialect != SMBDialect.NotSet)
                             {
-                                state = new SMB2ConnectionState(state, m_leaseConfig);
+                                state = new SMB2ConnectionState(state, m_leaseConfig, m_leaseManager);
                                 m_connectionManager.AddConnection(state);
                             }
                             EnqueueResponse(state, response);

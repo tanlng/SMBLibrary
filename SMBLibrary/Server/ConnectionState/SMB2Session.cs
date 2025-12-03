@@ -205,7 +205,7 @@ namespace SMBLibrary.Server
                 command.Header.Credits = 0; // Must be 0
                 command.Header.Flags = SMB2PacketHeaderFlags.ServerToRedir;
                 command.Header.NextCommand = 0;
-                command.Header.MessageID = 0; // Will be set by server
+                command.Header.MessageID = 0xFFFFFFFFFFFFFFFF; // Unsolicited response (server-initiated notification)
                 // ProcessID and StructureSize are private fields, skip setting them
 
                 // Set lease break specific fields
