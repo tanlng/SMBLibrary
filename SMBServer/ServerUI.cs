@@ -106,7 +106,7 @@ namespace SMBServer
             m_server.LeaseConfiguration = new SMBLibrary.Server.Leasing.LeaseManagerConfiguration
             {
                 MaxLeases = 1000,
-                DefaultLeaseDuration = TimeSpan.FromSeconds(3), // 3 seconds as requested
+                // Note: DefaultLeaseDuration removed - not used per MS-SMB2 spec
                 LeaseBreakTimeout = TimeSpan.FromSeconds(30),
                 CleanupInterval = TimeSpan.FromSeconds(3), // Check every second to quickly clean up expired leases
                 EnableLeaseBreakNotifications = true,

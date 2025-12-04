@@ -169,8 +169,9 @@ namespace SMBLibrary.Server.Leasing
                 throw new LeaseException("Maximum lease count exceeded",
                     Guid.Empty, LeaseErrorCode.LeaseResourceExhausted);
 
-            // Use default lease duration if client sends 0 (per MS-SMB2 spec)
-            TimeSpan effectiveDuration = GetEffectiveDuration(request);
+            // Note: Per MS-SMB2 spec, LeaseDuration field is reserved and MUST be ignored.
+            // Server does not use time-based lease expiration. Leases remain valid until
+            // explicitly broken or released.
 
             var leaseInfo = new LeaseInfo
             {
@@ -179,7 +180,7 @@ namespace SMBLibrary.Server.Leasing
                 Flags = request.LeaseFlags,
                 Epoch = 1, // Initialize Epoch to 1 for new Lease (V2)
                 CreatedTime = DateTime.UtcNow,
-                ExpirationTime = DateTime.UtcNow.Add(effectiveDuration),
+                ExpirationTime = DateTime.MaxValue, // No expiration (MS-SMB2 compliant)
                 SessionId = request.SessionId,
                 FileId = request.FileId,
                 FilePath = request.FilePath,
@@ -200,14 +201,14 @@ namespace SMBLibrary.Server.Leasing
                 AddToIndexes(leaseInfo);
                 
                 // Detailed logging for lease creation
+                // Note: Per MS-SMB2 spec, leases do not expire based on time
                 LogHandler?.Invoke(Severity.Information, 
                     $"[LeaseManager] 🎁 Lease Created:\n" +
                     $"    Key: {leaseInfo.LeaseKey}\n" +
                     $"    Path: '{leaseInfo.FilePath}'\n" +
                     $"    State: {leaseInfo.State}\n" +
                     $"    Session: {leaseInfo.SessionId}\n" +
-                    $"    Duration: {effectiveDuration.TotalSeconds}s\n" +
-                    $"    ExpiresAt: {leaseInfo.ExpirationTime:HH:mm:ss.fff}\n" +
+                    $"    Epoch: {leaseInfo.Epoch}\n" +
                     $"    Total Active Leases: {m_leaseRegistry.Count}");
                 
                 LeaseCreated?.Invoke(this, new LeaseCreatedEventArgs(leaseInfo));
@@ -220,31 +221,7 @@ namespace SMBLibrary.Server.Leasing
             }
         }
 
-        private TimeSpan GetEffectiveDuration(LeaseRequest request)
-        {
-            TimeSpan duration;
-            if (request.LeaseDuration > TimeSpan.Zero)
-            {
-                if (m_config.DefaultLeaseDuration == TimeSpan.Zero || request.LeaseDuration < m_config.DefaultLeaseDuration)
-                {
-                    duration = request.LeaseDuration;
-                }
-                else
-                {
-                    duration = m_config.DefaultLeaseDuration;
-                }
-            }
-            else
-            {
-                duration = m_config.DefaultLeaseDuration;
-            }
-            
-            LogHandler?.Invoke(Severity.Information, 
-                $"[LeaseManager] ⏱️ Lease Duration: Client requested={request.LeaseDuration.TotalSeconds}s, " +
-                $"Config default={m_config.DefaultLeaseDuration.TotalSeconds}s, Effective={duration.TotalSeconds}s");
-            
-            return duration;
-        }
+
 
         /// <summary>
         /// Break specified lease

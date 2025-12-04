@@ -13,14 +13,10 @@ namespace SMBLibrary.Server.Leasing
         public int MaxLeases { get; set; } = 10000;
         
         /// <summary>
-        /// Default lease duration
+        /// Lease break timeout (time to wait for client ACK after Break notification)
+        /// Recommended: 30s (Samba) or 35s (Windows Server)
         /// </summary>
-        public TimeSpan DefaultLeaseDuration { get; set; } = TimeSpan.FromMinutes(30);
-        
-        /// <summary>
-        /// Lease break timeout
-        /// </summary>
-        public TimeSpan LeaseBreakTimeout { get; set; } = TimeSpan.FromSeconds(30);
+        public TimeSpan LeaseBreakTimeout { get; set; } = TimeSpan.FromSeconds(35);
         
         /// <summary>
         /// Cleanup interval
@@ -49,8 +45,6 @@ namespace SMBLibrary.Server.Leasing
         {
             if (MaxLeases <= 0)
                 throw new ArgumentException("MaxLeases must be positive");
-            if (DefaultLeaseDuration < TimeSpan.Zero)
-                throw new ArgumentException("DefaultLeaseDuration must be positive");
             if (LeaseBreakTimeout <= TimeSpan.Zero)
                 throw new ArgumentException("LeaseBreakTimeout must be positive");
             if (CleanupInterval <= TimeSpan.Zero)

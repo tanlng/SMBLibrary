@@ -37,12 +37,12 @@ namespace SMBLibrary.Server.Leasing
             }
 
             // Create lease
+            // Note: LeaseDuration is ignored per MS-SMB2 spec (client sends 0, server ignores)
             var request = new LeaseRequest
             {
                 LeaseKey = leaseContext.LeaseKey,
                 LeaseState = leaseContext.LeaseState,
                 LeaseFlags = leaseContext.LeaseFlags,
-                LeaseDuration = TimeSpan.FromMilliseconds(leaseContext.LeaseDuration),
                 SessionId = sessionId,
                 FileId = fileId,
                 FilePath = filePath,
@@ -63,11 +63,12 @@ namespace SMBLibrary.Server.Leasing
             if (leaseInfo == null)
                 throw new ArgumentNullException(nameof(leaseInfo));
 
+            // Per MS-SMB2 spec: Server MUST return LeaseDuration = 0
             var context = new LeaseContext(
                 leaseInfo.LeaseKey,
                 leaseInfo.State,
                 leaseInfo.Flags,
-                (ulong)Math.Max(0, leaseInfo.RemainingTime.TotalMilliseconds),
+                0, // LeaseDuration MUST be 0 per MS-SMB2 specification
                 Guid.Empty, // ParentLeaseKey (not used in response)
                 leaseInfo.Epoch // Return the current Epoch (V2)
             );
