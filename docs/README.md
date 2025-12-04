@@ -54,7 +54,8 @@ docs/
 │       │   └── leasing/
 │       │       └── windows.json            # 原始抓包数据
 │       └── leasing/
-│           └── smb2-lease-architecture.md
+│           ├── lease-architecture.md
+│           └── lease-break-strategy.md
 │
 ├── api/                                # API 文档
 │   └── server/
@@ -93,8 +94,9 @@ docs/
 - **[RqLs 租约上下文详解](protocols/smb2/rqls-lease-context-explained.md)** ⭐ - RqLs 工作机制和实现
 - **[SMB2 Create Contexts](protocols/smb2/smb2-create-contexts.md)** - Create Contexts 协议
 - **[SMB2 Negotiate Capabilities](protocols/smb2/smb2-negotiate-capabilities.md)** - 协商能力
-- **[SMB2 Lease Protocol](protocols/smb2/smb2-lease-protocol.md)** - 租赁协议
-- **[SMB2 Lease Architecture](protocols/smb2/leasing/smb2-lease-architecture.md)** - 租赁架构
+- **[SMB2 Lease Protocol](protocols/smb2/leasing/lease-protocol-specification.md)** - 租赁协议
+- **[SMB2 Lease Architecture](protocols/smb2/leasing/lease-architecture.md)** - 租赁架构
+- **[SMB2 Lease Break Strategy](protocols/smb2/leasing/lease-break-strategy.md)** - 租约中断策略
 
 ### API 文档
 - **[Create Contexts API](api/server/create-contexts/create-contexts-api.md)** - Create Contexts API

@@ -47,6 +47,11 @@ namespace SMBLibrary.Server.Leasing
         /// Desired access rights
         /// </summary>
         public AccessMask DesiredAccess { get; set; }
+
+        /// <summary>
+        /// Lease Epoch (Version)
+        /// </summary>
+        public ushort Epoch { get; set; }
         
         /// <summary>
         /// Share access rights

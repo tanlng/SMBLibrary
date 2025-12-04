@@ -45,7 +45,8 @@ namespace SMBLibrary.Server.Leasing
                 LeaseDuration = TimeSpan.FromMilliseconds(leaseContext.LeaseDuration),
                 SessionId = sessionId,
                 FileId = fileId,
-                FilePath = filePath
+                FilePath = filePath,
+                Epoch = leaseContext.Epoch
             };
 
             var leaseInfo = m_leaseManager.CreateLease(request);

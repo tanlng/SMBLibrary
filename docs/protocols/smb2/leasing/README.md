@@ -26,6 +26,11 @@
    - 存储设计和性能优化
    - 安全考虑和扩展性设计
 
+4. **[lease-break-strategy.md](lease-break-strategy.md)** - 租约中断策略
+   - 租约中断的核心原则
+   - 触发中断的场景
+   - 中断流程详解
+
 ### 🔍 抓包分析
 
 4. **[lease-key-detailed-analysis.md](lease-key-detailed-analysis.md)** - LeaseKey 详细分析

@@ -115,6 +115,29 @@ namespace SMBLibrary.Server.Leasing
                     // (just access tracking, not critical for correctness)
                     existingLease.UpdateAccess();
 
+                    // [Phase 1 Fix]: If lease is breaking, reset the break state
+                    // This happens when client acknowledges the break or renews the lease
+                    if (existingLease.IsBreaking)
+                    {
+                        LogHandler?.Invoke(Severity.Information, 
+                            $"[LeaseManager] 🔄 Lease {existingLease.LeaseKey} is breaking (Reason: {existingLease.PendingBreakReason}). " +
+                            $"Client renewed/acknowledged. Resetting break state.");
+                        existingLease.PendingBreakReason = null;
+                    }
+
+                    // [Phase 2 Fix]: Update Epoch if client sends a newer one
+                    if (request.Epoch > existingLease.Epoch)
+                    {
+                        LogHandler?.Invoke(Severity.Information, 
+                            $"[LeaseManager] 🆙 Lease {existingLease.LeaseKey} Epoch updated: {existingLease.Epoch} -> {request.Epoch}");
+                        existingLease.Epoch = request.Epoch;
+                    }
+                    else if (request.Epoch > 0 && request.Epoch < existingLease.Epoch)
+                    {
+                         LogHandler?.Invoke(Severity.Warning, 
+                            $"[LeaseManager] ⚠️ Client sent older Epoch {request.Epoch} for Lease {existingLease.LeaseKey} (Current: {existingLease.Epoch}). Ignoring.");
+                    }
+
                     // Add new file to lease tracking if it's a different file
                     // Use struct comparison to properly compare FileID
                     bool isDifferentFile = (existingLease.FileId.Persistent != request.FileId.Persistent ||
