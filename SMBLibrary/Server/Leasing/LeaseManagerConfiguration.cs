@@ -34,6 +34,23 @@ namespace SMBLibrary.Server.Leasing
         public bool EnableLeaseExpirationEvents { get; set; } = true;
         
         /// <summary>
+        /// Support directory leasing (SMB3 Directory Leasing)
+        /// 
+        /// When false (default):
+        /// - Server behavior aligns with Samba without SMB2_CAP_DIRECTORY_LEASING
+        /// - Client can request directory leases, but server silently rejects them
+        /// - Returns OplockLevel.None for directory opens (no RpLs context)
+        /// 
+        /// When true:
+        /// - Server grants directory leases (SMB 3.0+ feature)
+        /// - Enables parent directory lease notifications on file create/delete
+        /// - Requires client support for SMB 3.0+ with directory leasing capability
+        /// 
+        /// Reference: MS-SMB2 2.2.13, MS-FSA 2.1.5.18
+        /// </summary>
+        public bool SupportDirectoryLeasing { get; set; } = false;
+        
+        /// <summary>
         /// Log level
         /// </summary>
         public LogLevel LogLevel { get; set; } = LogLevel.Information;

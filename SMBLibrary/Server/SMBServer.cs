@@ -330,7 +330,8 @@ namespace SMBLibrary.Server
                         if (smb2Dialects.Count > 0)
                         {
                             bool supportsLeasing = (m_leaseConfig != null);
-                            SMB2Command response = SMB2.NegotiateHelper.GetNegotiateResponse(smb2Dialects, m_securityProvider, state, m_transport, m_serverGuid, m_serverStartTime, supportsLeasing);
+                            bool supportsDirectoryLeasing = (m_leaseConfig?.SupportDirectoryLeasing ?? false);
+                            SMB2Command response = SMB2.NegotiateHelper.GetNegotiateResponse(smb2Dialects, m_securityProvider, state, m_transport, m_serverGuid, m_serverStartTime, supportsLeasing, supportsDirectoryLeasing);
                             if (state.Dialect != SMBDialect.NotSet)
                             {
                                 state = new SMB2ConnectionState(state, m_leaseConfig, m_leaseManager);

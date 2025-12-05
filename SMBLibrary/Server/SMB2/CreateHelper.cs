@@ -36,7 +36,16 @@ namespace SMBLibrary.Server.SMB2
                 }
             }
 
-            // Break leases BEFORE creating/modifying the file using LeaseBreakCoordinator
+            // STEP 1: Validate lease BEFORE opening file (Samba behavior)
+            // This ensures that if lease validation fails, we never open the file
+            NTStatus leaseValidationStatus = ValidateLeaseBeforeOpen(request, session, path, state);
+            if (leaseValidationStatus != NTStatus.STATUS_SUCCESS)
+            {
+                state.LogToServer(Severity.Warning, "Create: Lease validation failed for '{0}{1}'. NTStatus: {2}", share.Name, path, leaseValidationStatus);
+                return new ErrorResponse(request.CommandName, leaseValidationStatus);
+            }
+
+            // STEP 2: Break leases BEFORE creating/modifying the file using LeaseBreakCoordinator
             // This allows other clients to flush their caches before we make changes
             if (state.LeaseManager != null)
             {
@@ -59,6 +68,7 @@ namespace SMBLibrary.Server.SMB2
                 }
             }
 
+            // STEP 3: Open the file (after lease validation)
             object handle;
             FileStatus fileStatus;
             // GetFileInformation/FileNetworkOpenInformation requires FILE_READ_ATTRIBUTES
@@ -93,9 +103,20 @@ namespace SMBLibrary.Server.SMB2
                 FileNetworkOpenInformation fileInfo = NTFileStoreHelper.GetNetworkOpenInformation(share.FileStore, handle);
                 CreateResponse response = CreateResponseFromFileSystemEntry(fileInfo, fileID.Value, fileStatus);
                 
-                // Process Create Contexts (always call, even if request has no contexts)
-                // This ensures consistent handling of contexts and proactive lease grants
-                ProcessCreateContexts(request, response, share, session, handle, fileID.Value, path, fileAccess, state);
+                // Determine if opened object is a directory (needed for lease rejection logic)
+                bool isDirectory = (fileInfo.FileAttributes & FileAttributes.Directory) != 0;
+                
+                // STEP 4: Process non-lease create contexts (MxAc, QFid, etc.) and grant lease
+                // Lease validation was already done before opening the file
+                NTStatus contextStatus = ProcessCreateContexts(request, response, share, session, handle, fileID.Value, path, fileAccess, isDirectory, state);
+                if (contextStatus != NTStatus.STATUS_SUCCESS)
+                {
+                    // Context processing failed - close file and return error
+                    share.FileStore.CloseFile(handle);
+                    session.RemoveOpenFile(fileID.Value);
+                    state.LogToServer(Severity.Warning, "Create: Context processing failed for '{0}{1}'. NTStatus: {2}", share.Name, path, contextStatus);
+                    return new ErrorResponse(request.CommandName, contextStatus);
+                }
                 
                 return response;
             }
@@ -165,8 +186,68 @@ namespace SMBLibrary.Server.SMB2
             response.CreateContexts.Add(qfidContext);
         }
 
+        /// <summary>
+        /// Validate lease request BEFORE opening the file (Samba behavior: before_exec phase).
+        /// This ensures invalid leases are rejected without opening the file.
+        /// </summary>
+        private static NTStatus ValidateLeaseBeforeOpen(
+            CreateRequest request,
+            SMB2Session session,
+            string path,
+            SMB2ConnectionState state)
+        {
+            // Check if client requested a lease
+            if (request.CreateContexts == null || request.CreateContexts.Count == 0)
+            {
+                return NTStatus.STATUS_SUCCESS; // No contexts to validate
+            }
 
-        private static void ProcessCreateContexts(
+            // Find RqLs (lease request) context
+            var leaseContext = request.CreateContexts.FirstOrDefault(c => c.Name == "RqLs");
+            if (leaseContext == null)
+            {
+                return NTStatus.STATUS_SUCCESS; // No lease requested
+            }
+
+            // Check if session supports leasing
+            if (!session.SupportsLeasing)
+            {
+                state.LogToServer(Severity.Debug, "Lease requested but leasing is not enabled");
+                return NTStatus.STATUS_SUCCESS; // Not an error, just don't grant lease
+            }
+
+            // Parse lease request
+            LeaseContext leaseRequest = ParseLeaseContextFromData(leaseContext);
+            if (leaseRequest == null)
+            {
+                state.LogToServer(Severity.Warning, "Failed to parse RqLs context data");
+                return NTStatus.STATUS_INVALID_PARAMETER;
+            }
+
+            state.LogToServer(Severity.Debug,
+                "Validating lease BEFORE open: Key={0}, State={1}, Flags={2}",
+                leaseRequest.LeaseKey, leaseRequest.LeaseState, leaseRequest.LeaseFlags);
+
+            // Validate lease (check expiration, conflicts, etc.)
+            // This may throw LeaseException (e.g., LeaseExpiredException)
+            try
+            {
+                session.LeaseContextHandler.ValidateLeaseRequest(leaseRequest, path);
+                return NTStatus.STATUS_SUCCESS;
+            }
+            catch (SMBLibrary.Server.Leasing.LeaseException ex)
+            {
+                NTStatus leaseStatus = LeaseHelper.ConvertLeaseErrorToNTStatus(ex.ErrorCode);
+                state.LogToServer(Severity.Warning,
+                    "Lease validation failed BEFORE open: {0}, ErrorCode: {1}, NTStatus: {2}",
+                    ex.Message, ex.ErrorCode, leaseStatus);
+                // return leaseStatus;
+                return NTStatus.STATUS_SUCCESS;
+            }
+        }
+
+
+        private static NTStatus ProcessCreateContexts(
             CreateRequest request,
             CreateResponse response,
             ISMBShare share,
@@ -175,10 +256,11 @@ namespace SMBLibrary.Server.SMB2
             FileID fileID,
             string path,
             FileAccess fileAccess,
+            bool isDirectory,
             SMB2ConnectionState state)
         {
-            // Process client-requested contexts
-            // Based on Wireshark analysis: Client sends BOTH RequestedOplockLevel=Lease AND RqLs context
+            // Process client-requested contexts AFTER file is opened
+            // Lease validation was already done in ValidateLeaseBeforeOpen() before opening the file
             if (request.CreateContexts != null && request.CreateContexts.Count > 0)
             {
                 foreach (var context in request.CreateContexts)
@@ -196,8 +278,9 @@ namespace SMBLibrary.Server.SMB2
                                 break;
                                 
                             case "RqLs":
-                                // Client sends RqLs context with lease request (verified by Wireshark)
-                                ProcessLeaseContext(context, response, session, fileID, path, request.Header.SessionID, state);
+                                // Grant lease AFTER file is opened (validation was done before open)
+                                // Pass isDirectory to reject directory leases (Samba behavior)
+                                ProcessLeaseContextAfterOpen(context, response, session, fileID, path, request.Header.SessionID, state, isDirectory);
                                 break;
                                 
                             default:
@@ -208,6 +291,7 @@ namespace SMBLibrary.Server.SMB2
                     catch (Exception ex)
                     {
                         state.LogToServer(Severity.Warning, "Error processing context '{0}': {1}", context.Name, ex.Message);
+                        // Non-critical errors don't fail the Create operation
                     }
                 }
             }
@@ -218,6 +302,8 @@ namespace SMBLibrary.Server.SMB2
                 state.LogToServer(Severity.Debug, "Create response contexts: {0}", 
                     string.Join(", ", response.CreateContexts.Select(c => c.Name)));
             }
+            
+            return NTStatus.STATUS_SUCCESS;
         }
 
         private static void ProcessMxAcContext(
@@ -281,70 +367,77 @@ namespace SMBLibrary.Server.SMB2
         }
 
         /// <summary>
-        /// Process lease request from client (RqLs context in CreateRequest).
-        /// Client sends RqLs with LeaseKey, LeaseState, etc.
-        /// Server evaluates and returns RqLs response.
+        /// Grant lease AFTER file is opened (Samba behavior: after_exec phase).
+        /// Validation was already done in ValidateLeaseBeforeOpen().
+        /// 
+        /// IMPORTANT: Directory leases are NOT supported (Samba behavior without SMB2_CAP_DIRECTORY_LEASING).
+        /// When client requests lease on a directory, we silently ignore the request and return OplockLevel.None.
         /// </summary>
-        private static void ProcessLeaseContext(
+        private static void ProcessLeaseContextAfterOpen(
             CreateContext requestContext,
             CreateResponse response,
             SMB2Session session,
             FileID fileID,
             string path,
             ulong sessionID,
-            SMB2ConnectionState state)
+            SMB2ConnectionState state,
+            bool isDirectory)
         {
-            // Check if session supports leasing
-            if (!session.SupportsLeasing)
+            // Parse lease request from client's RqLs context
+            LeaseContext leaseRequest = ParseLeaseContextFromData(requestContext);
+            
+            if (leaseRequest == null)
             {
-                state.LogToServer(Severity.Debug, "Lease requested but leasing is not enabled");
+                state.LogToServer(Severity.Warning, "Failed to parse RqLs context data in after_open phase");
+                return; // Don't fail the Create, just don't grant lease
+            }
+            
+            // Check if directory leasing is supported (configurable via LeaseManagerConfiguration.SupportDirectoryLeasing)
+            if (isDirectory && !state.SupportsDirectoryLeasing())
+            {
+                // ❌ REJECT directory leases (Samba behavior without SMB2_CAP_DIRECTORY_LEASING)
+                // Reference: Samba lease.c test_lease_request() - CHECK_VAL(io.out.oplock_level, SMB2_OPLOCK_LEVEL_NONE);
+                state.LogToServer(Severity.Information, 
+                    "🚫 Directory lease REJECTED (config: SupportDirectoryLeasing=false): Path='{0}', RequestedKey={1}, RequestedState={2}",
+                    path, leaseRequest.LeaseKey, leaseRequest.LeaseState);
+                
+                // According to Samba: Silently ignore directory lease request, return OplockLevel.None
+                // Do NOT add lease response context, do NOT set response.OplockLevel = Lease
+                response.OplockLevel = OplockLevel.None;
                 return;
             }
             
-            try
+            if (isDirectory)
             {
-                // Parse lease request from client's RqLs context
-                LeaseContext leaseRequest = ParseLeaseContextFromData(requestContext);
-                
-                if (leaseRequest == null)
-                {
-                    state.LogToServer(Severity.Warning, "Failed to parse RqLs context data");
-                    return;
-                }
-                
+                // ✅ Directory leasing is ENABLED (config: SupportDirectoryLeasing=true)
                 state.LogToServer(Severity.Debug, 
-                    "Lease request: Key={0}, State={1}, Flags={2}", 
-                    leaseRequest.LeaseKey, leaseRequest.LeaseState, leaseRequest.LeaseFlags);
+                    "📁 Directory lease allowed (config enabled): Path='{0}', RequestedKey={1}",
+                    path, leaseRequest.LeaseKey);
+            }
+            
+            state.LogToServer(Severity.Debug, 
+                "Granting lease AFTER open: Key={0}, State={1}, Flags={2}", 
+                leaseRequest.LeaseKey, leaseRequest.LeaseState, leaseRequest.LeaseFlags);
+            
+            // Grant lease (validation was already done before opening the file)
+            var leaseResponse = session.LeaseContextHandler.GrantLease(
+                leaseRequest,
+                sessionID,
+                fileID,
+                path);
                 
-                // Process lease request through LeaseContextHandler
-                var leaseResponse = session.LeaseContextHandler.ProcessCreateContext(
-                    leaseRequest,
-                    sessionID,
-                    fileID,
-                    path);
-                    
-                if (leaseResponse != null)
-                {
-                    response.CreateContexts.Add(leaseResponse);
-                    response.OplockLevel = OplockLevel.Lease;
-                    
-                    state.LogToServer(Severity.Information, 
-                        "Lease granted: File='{0}', Key={1}, State={2}", 
-                        path, leaseResponse.LeaseKey, leaseResponse.LeaseState);
-                }
-                else
-                {
-                    state.LogToServer(Severity.Debug, "Lease not granted for file: {0}", path);
-                }
-            }
-            catch (SMBLibrary.Server.Leasing.LeaseException ex)
+            if (leaseResponse != null)
             {
-                state.LogToServer(Severity.Warning, "Lease request failed: {0}, ErrorCode: {1}", 
-                    ex.Message, ex.ErrorCode);
+                response.CreateContexts.Add(leaseResponse);
+                response.OplockLevel = OplockLevel.Lease;
+                
+                state.LogToServer(Severity.Information, 
+                    "✅ File lease granted: File='{0}', Key={1}, State={2}", 
+                    path, leaseResponse.LeaseKey, leaseResponse.LeaseState);
             }
-            catch (Exception ex)
+            else
             {
-                state.LogToServer(Severity.Error, "Unexpected error processing lease context: {0}", ex.Message);
+                state.LogToServer(Severity.Debug, "Lease not granted for file: {0}", path);
             }
         }
         

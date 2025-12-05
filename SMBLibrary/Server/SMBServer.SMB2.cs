@@ -121,7 +121,8 @@ namespace SMBLibrary.Server
                 {
                     NegotiateRequest request = (NegotiateRequest)command;
                     bool supportsLeasing = (m_leaseConfig != null);
-                    SMB2Command response = NegotiateHelper.GetNegotiateResponse(request, m_securityProvider, state, m_transport, m_serverGuid, m_serverStartTime, m_enableSMB3, supportsLeasing);
+                    bool supportsDirectoryLeasing = (m_leaseConfig?.SupportDirectoryLeasing ?? false);
+                    SMB2Command response = NegotiateHelper.GetNegotiateResponse(request, m_securityProvider, state, m_transport, m_serverGuid, m_serverStartTime, m_enableSMB3, supportsLeasing, supportsDirectoryLeasing);
                     if (state.Dialect != SMBDialect.NotSet)
                     {
                         // Pass the global LeaseManager to the connection state

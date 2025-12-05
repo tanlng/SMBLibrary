@@ -357,6 +357,20 @@ namespace SMBLibrary.Server.Leasing
         }
 
         /// <summary>
+        /// Try to get lease information by key
+        /// </summary>
+        /// <param name="leaseKey">Lease key to lookup</param>
+        /// <param name="leaseInfo">Output lease information if found</param>
+        /// <returns>True if lease exists, false otherwise</returns>
+        public bool TryGetLease(Guid leaseKey, out LeaseInfo leaseInfo)
+        {
+            if (m_disposed)
+                throw new ObjectDisposedException(nameof(LeaseManager));
+
+            return m_leaseRegistry.TryGetValue(leaseKey, out leaseInfo);
+        }
+
+        /// <summary>
         /// Remove specified lease
         /// </summary>
         public bool RemoveLease(Guid leaseKey)

@@ -102,15 +102,17 @@ namespace SMBServer
             GSSProvider securityProvider = new GSSProvider(authenticationMechanism);
             m_server = new SMBLibrary.Server.SMBServer(shares, securityProvider);
             
-            // Configure lease settings with 3 second expiration
+            // Configure lease settings
             m_server.LeaseConfiguration = new SMBLibrary.Server.Leasing.LeaseManagerConfiguration
             {
                 MaxLeases = 1000,
-                // Note: DefaultLeaseDuration removed - not used per MS-SMB2 spec
                 LeaseBreakTimeout = TimeSpan.FromSeconds(30),
-                CleanupInterval = TimeSpan.FromSeconds(3), // Check every second to quickly clean up expired leases
+                CleanupInterval = TimeSpan.FromSeconds(3),
                 EnableLeaseBreakNotifications = true,
-                EnableLeaseExpirationEvents = true
+                EnableLeaseExpirationEvents = true,
+                // Directory leasing (SMB3 feature) - disabled by default for Samba compatibility
+                // Set to true if clients need directory lease support (requires SMB 3.0+)
+                SupportDirectoryLeasing = false
             };
             
             m_logWriter = new LogWriter();

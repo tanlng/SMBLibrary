@@ -38,6 +38,15 @@ namespace SMBLibrary.Server
             // not overwritten by each ConnectionState.
         }
 
+        /// <summary>
+        /// Check if server supports directory leasing (SMB3 Directory Leasing capability).
+        /// Returns true only if LeaseConfiguration is set AND SupportDirectoryLeasing is enabled.
+        /// </summary>
+        public bool SupportsDirectoryLeasing()
+        {
+            return m_leaseConfig != null && m_leaseConfig.SupportDirectoryLeasing;
+        }
+
         public ulong? AllocateSessionID()
         {
             lock (s_sessionIdLock)

@@ -28,7 +28,7 @@ namespace SMBLibrary.Server.SMB2
         public const uint ServerMaxWriteSizeLargeMTU = 8 * 1024 * 1024;
 
         // Special case - SMB2 client initially connecting using SMB1
-        internal static SMB2Command GetNegotiateResponse(List<string> smb2Dialects, GSSProvider securityProvider, ConnectionState state, SMBTransportType transportType, Guid serverGuid, DateTime serverStartTime, bool supportsLeasing = false)
+        internal static SMB2Command GetNegotiateResponse(List<string> smb2Dialects, GSSProvider securityProvider, ConnectionState state, SMBTransportType transportType, Guid serverGuid, DateTime serverStartTime, bool supportsLeasing = false, bool supportsDirectoryLeasing = false)
         {
             NegotiateResponse response = new NegotiateResponse();
             response.Header.Credits = 1;
@@ -54,7 +54,11 @@ namespace SMBLibrary.Server.SMB2
             if (supportsLeasing)
             {
                 response.Capabilities |= Capabilities.Leasing;
-                response.Capabilities |= Capabilities.DirectoryLeasing;
+                // Only advertise DirectoryLeasing if explicitly enabled in configuration
+                if (supportsDirectoryLeasing)
+                {
+                    response.Capabilities |= Capabilities.DirectoryLeasing;
+                }
             }
             
             if (state.Dialect != SMBDialect.SMB202 && transportType == SMBTransportType.DirectTCPTransport)
@@ -94,7 +98,7 @@ namespace SMBLibrary.Server.SMB2
             return response;
         }
 
-        internal static SMB2Command GetNegotiateResponse(NegotiateRequest request, GSSProvider securityProvider, ConnectionState state, SMBTransportType transportType, Guid serverGuid, DateTime serverStartTime, bool enableSMB3, bool supportsLeasing = false)
+        internal static SMB2Command GetNegotiateResponse(NegotiateRequest request, GSSProvider securityProvider, ConnectionState state, SMBTransportType transportType, Guid serverGuid, DateTime serverStartTime, bool enableSMB3, bool supportsLeasing = false, bool supportsDirectoryLeasing = false)
         {
             NegotiateResponse response = new NegotiateResponse();
             if (!SetDialect(request, state, enableSMB3, response))
@@ -111,7 +115,11 @@ namespace SMBLibrary.Server.SMB2
             if (supportsLeasing)
             {
                 response.Capabilities |= Capabilities.Leasing;
-                response.Capabilities |= Capabilities.DirectoryLeasing;
+                // Only advertise DirectoryLeasing if explicitly enabled in configuration
+                if (supportsDirectoryLeasing)
+                {
+                    response.Capabilities |= Capabilities.DirectoryLeasing;
+                }
             }
             
             if (state.Dialect != SMBDialect.SMB202 && transportType == SMBTransportType.DirectTCPTransport)
