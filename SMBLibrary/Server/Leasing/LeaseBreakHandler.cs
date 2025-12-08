@@ -52,30 +52,49 @@ namespace SMBLibrary.Server.Leasing
         }
 
         /// <summary>
-        /// Process lease break acknowledgment
+        /// Process lease break acknowledgment from client
+        /// 
+        /// 处理流程:
+        /// 1. 从 ACK 中提取 NewLeaseState
+        /// 2. 调用 LeaseManager.AcknowledgeLeaseBreak()
+        /// 3. 根据返回值处理不同场景
+        /// 4. 成功时从 pending breaks 中移除
+        /// 
+        /// 返回值:
+        /// - STATUS_SUCCESS: Lease updated successfully
+        /// - STATUS_OBJECT_NAME_NOT_FOUND: Lease not found (expired)
+        /// - STATUS_UNSUCCESSFUL: Lease not in breaking state
         /// </summary>
-        public void ProcessLeaseBreakAcknowledgment(LeaseBreakResponse ack)
+        public NTStatus ProcessLeaseBreakAcknowledgment(LeaseBreakResponse ack)
         {
             if (ack == null)
                 throw new ArgumentNullException(nameof(ack));
 
             try
             {
-                m_leaseManager.AcknowledgeLeaseBreak(ack.LeaseKey);
+                // 调用 LeaseManager 处理 ACK,获取客户端确认的新状态
+                NTStatus status = m_leaseManager.AcknowledgeLeaseBreak(
+                    ack.LeaseKey, 
+                    ack.LeaseState);  // 客户端确认的新状态
                 
-                lock (m_lock)
+                // 成功时从 pending breaks 中移除
+                if (status == NTStatus.STATUS_SUCCESS)
                 {
-                    m_pendingBreaks.Remove(ack.LeaseKey);
+                    lock (m_lock)
+                    {
+                        m_pendingBreaks.Remove(ack.LeaseKey);
+                    }
                 }
-            }
-            catch (LeaseNotFoundException)
-            {
-                // Lease not found, ignore
+                
+                return status;
             }
             catch (Exception ex)
             {
-                throw new LeaseException($"Failed to acknowledge lease break: {ex.Message}", 
-                    ack.LeaseKey, LeaseErrorCode.LeaseBreakInProgress);
+                // 异常转换为 STATUS_UNSUCCESSFUL
+                throw new LeaseException(
+                    $"Failed to acknowledge lease break: {ex.Message}", 
+                    ack.LeaseKey, 
+                    LeaseErrorCode.LeaseBreakInProgress);
             }
         }
 
@@ -90,7 +109,7 @@ namespace SMBLibrary.Server.Leasing
             try
             {
                 // Force acknowledge lease break
-                m_leaseManager.AcknowledgeLeaseBreak(leaseInfo.LeaseKey);
+                m_leaseManager.AcknowledgeLeaseBreak(leaseInfo.LeaseKey, LeaseState.None);
                 
                 lock (m_lock)
                 {

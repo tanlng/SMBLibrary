@@ -28,6 +28,7 @@ namespace SMBLibrary.Server
         private SMBLibrary.Server.Leasing.LeaseManager m_leaseManager;
 
         public SMBLibrary.Server.Leasing.LeaseManager LeaseManager => m_leaseManager;
+        public SMBLibrary.Server.Leasing.LeaseManagerConfiguration LeaseConfig => m_leaseConfig;
 
         public SMB2ConnectionState(ConnectionState state, SMBLibrary.Server.Leasing.LeaseManagerConfiguration leaseConfig = null, SMBLibrary.Server.Leasing.LeaseManager leaseManager = null) : base(state)
         {

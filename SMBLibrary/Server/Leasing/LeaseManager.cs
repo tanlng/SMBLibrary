@@ -252,8 +252,17 @@ namespace SMBLibrary.Server.Leasing
             // Check if lease is already breaking - skip duplicate break
             if (leaseInfo.IsBreaking)
             {
-                LogHandler?.Invoke(Severity.Information, 
-                    $"[LeaseManager] ⚠️ Lease {leaseKey} is already breaking (Reason: {leaseInfo.PendingBreakReason}), skipping duplicate break request");
+                LogHandler?.Invoke(Severity.Warning, 
+                    string.Format("[LeaseManager] ⚠️ DUPLICATE BREAK DETECTED - Lease {0} is already breaking\n" +
+                    "    Current Breaking Reason: {1}\n" +
+                    "    New Break Request Reason: {2}\n" +
+                    "    Break Start Time: {3:yyyy-MM-dd HH:mm:ss.fff}\n" +
+                    "    Current Epoch: {4}\n" +
+                    "    Path: {5}\n" +
+                    "    Session: {6}\n" +
+                    "    ⚠️ Skipping duplicate break to prevent multiple notifications",
+                    leaseKey, leaseInfo.PendingBreakReason, reason, leaseInfo.BreakStartTime,
+                    leaseInfo.Epoch, leaseInfo.FilePath, leaseInfo.SessionId));
                 return;
             }
 
@@ -271,22 +280,74 @@ namespace SMBLibrary.Server.Leasing
         }
 
         /// <summary>
-        /// Acknowledge lease break
+        /// Acknowledge lease break and update lease state
+        /// 
+        /// 协议规范 (MS-SMB2 3.3.5.24.3):
+        /// - 如果租约不存在,返回 STATUS_OBJECT_NAME_NOT_FOUND
+        /// - 如果租约不在 Breaking 状态,返回 STATUS_UNSUCCESSFUL
+        /// - 成功时:清除 Breaking 标志,增加 Epoch,更新 LeaseState
+        /// 
+        /// Samba behavior reference:
+        /// - Lease not found: Return STATUS_OBJECT_NAME_NOT_FOUND (smb2_break.c:190)
+        /// - Update state without removing lease (leases_db.c:435)
+        /// - Increment Epoch and clear Breaking flag
         /// </summary>
-        public void AcknowledgeLeaseBreak(Guid leaseKey)
+        /// <param name="leaseKey">The lease key to acknowledge</param>
+        /// <param name="newLeaseState">New lease state from client ACK</param>
+        /// <returns>NTStatus indicating success or specific error</returns>
+        public NTStatus AcknowledgeLeaseBreak(Guid leaseKey, LeaseState newLeaseState)
         {
             if (m_disposed)
                 throw new ObjectDisposedException(nameof(LeaseManager));
 
+            // 1. 检查租约是否存在 (Lease lookup)
             if (!m_leaseRegistry.TryGetValue(leaseKey, out var leaseInfo))
-                throw new LeaseNotFoundException(leaseKey);
+            {
+                // 租约已过期或不存在 (Samba: smb2_break.c:190)
+                LogHandler?.Invoke(Severity.Warning, 
+                    string.Format("[LeaseManager] Lease Break ACK failed: Lease not found. LeaseKey={0}", 
+                    leaseKey));
+                return NTStatus.STATUS_OBJECT_NAME_NOT_FOUND;
+            }
 
+            // 2. 检查租约是否在 Breaking 状态 (Breaking state check)
             if (!leaseInfo.IsBreaking)
-                throw new LeaseException("Lease is not in breaking state",
-                    leaseKey, LeaseErrorCode.LeaseBreakInProgress);
+            {
+                // 租约不在 Breaking 状态,无法ACK (Samba: leases.c:1104)
+                // 可能是重复ACK或租约已经被确认
+                LogHandler?.Invoke(Severity.Warning, 
+                    string.Format("[LeaseManager] Lease Break ACK failed: Lease not breaking. LeaseKey={0}, CurrentState={1}", 
+                    leaseKey, leaseInfo.State));
+                return NTStatus.STATUS_INVALID_PARAMETER;
+            }
 
-            leaseInfo.PendingBreakReason = null;
-            RemoveLease(leaseKey);
+            // 3. 更新租约状态 (Update lease state - DO NOT remove)
+            leaseInfo.State = newLeaseState;              // 更新为客户端确认的新状态
+            // NOTE: Do NOT increment Epoch here - it was already incremented in BreakLease()
+            // MS-SMB2: Epoch increments only once per break cycle (at break notification time)
+            leaseInfo.PendingBreakReason = null;          // 清除 Breaking 标志和原因
+
+            // 4. 更新租约活动时间 (Update lease activity times after ACK)
+            // ACK表示客户端确认了租约降级,视为一次租约活动
+            DateTime oldCreatedTime = leaseInfo.CreatedTime;
+            leaseInfo.LastAccessTime = DateTime.UtcNow;
+            leaseInfo.CreatedTime = DateTime.UtcNow;      // 🔄 重置CreatedTime,重新开始计时(用于SC自动过期机制)
+            
+            // Note: ExpirationTime不需要更新
+            // MS-SMB2规范: 租约不基于时间过期,除非服务器主动Break或客户端Close
+            // 租约的ExpirationTime默认为DateTime.MaxValue(永不过期)
+            
+            // SC特殊说明:
+            // - CreatedTime用于SC自动过期机制(LeaseAutoExpireSeconds)计算租约年龄
+            // - ACK后重置CreatedTime,防止下次目录打开时立即再次触发自动过期
+            // - ExpirationTime保持MaxValue(符合MS-SMB2规范)
+
+            // 5. 记录日志
+            LogHandler?.Invoke(Severity.Information, 
+                string.Format("[LeaseManager] ✅ Lease Break ACK success: LeaseKey={0}, NewState={1}, Epoch={2}, Path={3}, CreatedTime={4:yyyy-MM-dd HH:mm:ss.fff}→{5:yyyy-MM-dd HH:mm:ss.fff}", 
+                leaseKey, newLeaseState, leaseInfo.Epoch, leaseInfo.FilePath, oldCreatedTime, leaseInfo.CreatedTime));
+
+            return NTStatus.STATUS_SUCCESS;
         }
 
         /// <summary>
@@ -560,8 +621,8 @@ namespace SMBLibrary.Server.Leasing
                     Console.WriteLine($"[LeaseManager] Lease break timeout for Key: {lease.LeaseKey}. Forcing break acknowledgment.");
                     try
                     {
-                        // Force acknowledge
-                        AcknowledgeLeaseBreak(lease.LeaseKey);
+                        // Force acknowledge - timeout removes all lease state
+                        AcknowledgeLeaseBreak(lease.LeaseKey, LeaseState.None);
                     }
                     catch (Exception ex)
                     {

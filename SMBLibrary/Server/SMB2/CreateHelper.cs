@@ -37,16 +37,18 @@ namespace SMBLibrary.Server.SMB2
             }
 
             // STEP 1: Validate lease BEFORE opening file (Samba behavior)
-            // This ensures that if lease validation fails, we never open the file
+            // Basic validation only (format, session support, etc.)
+            // Note: Auto-expire check is done AFTER CreateFile when we know the actual file type
             NTStatus leaseValidationStatus = ValidateLeaseBeforeOpen(request, session, path, state);
             if (leaseValidationStatus != NTStatus.STATUS_SUCCESS)
             {
                 state.LogToServer(Severity.Warning, "Create: Lease validation failed for '{0}{1}'. NTStatus: {2}", share.Name, path, leaseValidationStatus);
                 return new ErrorResponse(request.CommandName, leaseValidationStatus);
             }
-
+            
             // STEP 2: Break leases BEFORE creating/modifying the file using LeaseBreakCoordinator
             // This allows other clients to flush their caches before we make changes
+            // Note: We use request.CreateOptions hint for directory detection here (not 100% accurate but good enough)
             if (state.LeaseManager != null)
             {
                 bool isWrite = false;
@@ -59,16 +61,16 @@ namespace SMBLibrary.Server.SMB2
                     isWrite = true;
                 }
 
-                bool isDirectory = (request.CreateOptions & CreateOptions.FILE_DIRECTORY_FILE) != 0;
-
                 if (isWrite)
                 {
+                    // Use CreateOptions hint to detect directory (not 100% accurate, but good enough for lease breaking)
+                    bool isDirectoryHint = (request.CreateOptions & CreateOptions.FILE_DIRECTORY_FILE) != 0;
                     // Use LeaseBreakHelper for centralized lease management
-                    LeaseBreakHelper.BreakLeasesOnFileCreate(state.LeaseManager, state.LogToServer, path, request.Header.SessionID, isDirectory);
+                    LeaseBreakHelper.BreakLeasesOnFileCreate(state.LeaseManager, state.LogToServer, path, request.Header.SessionID, isDirectoryHint);
                 }
             }
 
-            // STEP 3: Open the file (after lease validation)
+            // STEP 3: Open the file (after lease validation and auto-expire check)
             object handle;
             FileStatus fileStatus;
             // GetFileInformation/FileNetworkOpenInformation requires FILE_READ_ATTRIBUTES
@@ -104,11 +106,15 @@ namespace SMBLibrary.Server.SMB2
                 CreateResponse response = CreateResponseFromFileSystemEntry(fileInfo, fileID.Value, fileStatus);
                 
                 // Determine if opened object is a directory (needed for lease rejection logic)
-                bool isDirectory = (fileInfo.FileAttributes & FileAttributes.Directory) != 0;
+                bool isDirectoryOpened = (fileInfo.FileAttributes & FileAttributes.Directory) != 0;
                 
-                // STEP 4: Process non-lease create contexts (MxAc, QFid, etc.) and grant lease
+                // STEP 4: SC special feature - Auto-expire check for directory leases
+                // Now we know the ACTUAL file type from fileInfo.FileAttributes
+                CheckAndBreakExpiredDirectoryLeases(request, session, path, isDirectoryOpened, state);
+                
+                // STEP 5: Process non-lease create contexts (MxAc, QFid, etc.) and grant lease
                 // Lease validation was already done before opening the file
-                NTStatus contextStatus = ProcessCreateContexts(request, response, share, session, handle, fileID.Value, path, fileAccess, isDirectory, state);
+                NTStatus contextStatus = ProcessCreateContexts(request, response, share, session, handle, fileID.Value, path, fileAccess, isDirectoryOpened, state);
                 if (contextStatus != NTStatus.STATUS_SUCCESS)
                 {
                     // Context processing failed - close file and return error
@@ -189,6 +195,9 @@ namespace SMBLibrary.Server.SMB2
         /// <summary>
         /// Validate lease request BEFORE opening the file (Samba behavior: before_exec phase).
         /// This ensures invalid leases are rejected without opening the file.
+        /// 
+        /// Note: This only does BASIC validation (format, session support).
+        /// Auto-expire check is done AFTER CreateFile when we know the actual file type.
         /// </summary>
         private static NTStatus ValidateLeaseBeforeOpen(
             CreateRequest request,
@@ -304,6 +313,108 @@ namespace SMBLibrary.Server.SMB2
             }
             
             return NTStatus.STATUS_SUCCESS;
+        }
+
+        /// <summary>
+        /// Check and break expired directory leases (SC special feature).
+        /// This is called AFTER CreateFile when we know the actual file type.
+        /// 
+        /// Runs for ALL directory open operations, regardless of whether client requests a lease.
+        /// 
+        /// Supports two modes (controlled by LeaseAutoExpireScope):
+        /// - CurrentLease: Break expired leases for current path only (default, minimal impact)
+        /// - AllSessionLeases: Break ALL expired leases for current session (batch cleanup)
+        /// </summary>
+        private static void CheckAndBreakExpiredDirectoryLeases(
+            CreateRequest request,
+            SMB2Session session,
+            string path,
+            bool isDirectory,
+            SMB2ConnectionState state)
+        {
+            // Only check for directories
+            if (!isDirectory || state.LeaseManager == null)
+                return;
+            
+            int autoExpireSeconds = state.LeaseConfig?.LeaseAutoExpireSeconds ?? 0;
+            if (autoExpireSeconds <= 0)
+                return; // Feature disabled
+            
+            var expireScope = state.LeaseConfig?.LeaseAutoExpireScope ?? SMBLibrary.Server.Leasing.LeaseAutoExpireScope.CurrentLease;
+            
+            // Normalize current path for comparison
+            string normalizedPath = path.Replace('/', '\\');
+            if (!normalizedPath.StartsWith("\\")) normalizedPath = "\\" + normalizedPath;
+            
+            // Get all active leases
+            var allActiveLeases = state.LeaseManager.GetActiveLeases();
+            int expiredCount = 0;
+            
+            foreach (var existingLease in allActiveLeases)
+            {
+                // Normalize lease path
+                string leasePath = existingLease.FilePath;
+                if (string.IsNullOrEmpty(leasePath)) continue;
+                
+                leasePath = leasePath.Replace('/', '\\');
+                if (!leasePath.StartsWith("\\")) leasePath = "\\" + leasePath;
+                
+                // Filter by scope
+                bool shouldCheck = false;
+                if (expireScope == SMBLibrary.Server.Leasing.LeaseAutoExpireScope.CurrentLease)
+                {
+                    // Mode 1: Only check current path
+                    shouldCheck = string.Equals(leasePath, normalizedPath, StringComparison.OrdinalIgnoreCase);
+                }
+                else if (expireScope == SMBLibrary.Server.Leasing.LeaseAutoExpireScope.AllSessionLeases)
+                {
+                    // Mode 2: Check all leases for current session
+                    shouldCheck = (existingLease.SessionId == request.Header.SessionID);
+                }
+                
+                if (!shouldCheck)
+                    continue;
+                
+                // Check if lease is expired
+                var leaseAge = DateTime.UtcNow - existingLease.CreatedTime;
+                if (leaseAge.TotalSeconds > autoExpireSeconds)
+                {
+                    state.LogToServer(Severity.Information, 
+                        "[Auto-Expire] 检测到过期目录租约: Path={0}, LeaseKey={1}, Age={2}s, Threshold={3}s, Scope={4}",
+                        leasePath, existingLease.LeaseKey, (int)leaseAge.TotalSeconds, autoExpireSeconds, expireScope);
+                    
+                    try
+                    {
+                        // Break the lease for the specific path
+                        state.LeaseManager.BreakLeases(leasePath);
+                        expiredCount++;
+                        
+                        state.LogToServer(Severity.Information,
+                            "[Auto-Expire] ✅ 成功发送租约 Break: Path={0}, LeaseKey={1}",
+                            leasePath, existingLease.LeaseKey);
+                        
+                        // For CurrentLease mode, break once and exit
+                        if (expireScope == SMBLibrary.Server.Leasing.LeaseAutoExpireScope.CurrentLease)
+                        {
+                            break;
+                        }
+                        // For AllSessionLeases mode, continue checking other leases
+                    }
+                    catch (Exception ex)
+                    {
+                        state.LogToServer(Severity.Error,
+                            "[Auto-Expire] ❌ 发送租约 Break 失败: Path={0}, LeaseKey={1}, Error={2}",
+                            leasePath, existingLease.LeaseKey, ex.Message);
+                    }
+                }
+            }
+            
+            if (expiredCount > 0 && expireScope == SMBLibrary.Server.Leasing.LeaseAutoExpireScope.AllSessionLeases)
+            {
+                state.LogToServer(Severity.Information,
+                    "[Auto-Expire] 📊 批量过期检查完成: SessionID={0}, 已中断租约数={1}",
+                    request.Header.SessionID, expiredCount);
+            }
         }
 
         private static void ProcessMxAcContext(

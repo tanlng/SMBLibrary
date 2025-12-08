@@ -22,6 +22,7 @@ namespace SMBLibrary.SMB2
         /// </summary>
         public LeaseBreakResponse() : base(SMB2CommandName.OplockBreak)
         {
+            Header.IsResponse = true;
             StructureSize = FixedLength;
         }
 

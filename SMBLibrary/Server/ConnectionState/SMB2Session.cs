@@ -237,15 +237,52 @@ namespace SMBLibrary.Server
         }
 
         /// <summary>
-        /// Process lease break response from client
+        /// Process lease break acknowledgment from client
+        /// 
+        /// ⚠️ CRITICAL CORRECTION (2025-12-08): 服务器**必须**返回 LeaseBreakResponse!
+        /// 
+        /// Samba 实现 (source3/smbd/smb2_break.c:281-328):
+        /// - 构造 36 字节响应体
+        /// - 包含 LeaseKey 和更新后的 LeaseState
+        /// - 调用 smbd_smb2_request_done() 发送响应
+        /// 
+        /// 处理结果:
+        /// - 成功: 返回 LeaseBreakResponse (36 bytes)
+        /// - 失败: 返回 ErrorResponse with NTStatus
+        /// 
+        /// Protocol reference: MS-SMB2 2.2.24.2 "SMB2 OPLOCK_BREAK Acknowledgment"
         /// </summary>
         public SMB2Command ProcessLeaseBreakResponse(LeaseBreakResponse response)
         {
-            if (m_leaseBreakHandler != null)
+            if (m_leaseBreakHandler == null)
             {
-                m_leaseBreakHandler.ProcessLeaseBreakAcknowledgment(response);
+                LogToServer(Severity.Warning, "[SMB2Session] Lease Break ACK received but no LeaseBreakHandler configured");
+                return new ErrorResponse(SMB2CommandName.OplockBreak, NTStatus.STATUS_NOT_SUPPORTED);
             }
-            return null; // No response required
+
+            // 处理 ACK
+            NTStatus status = m_leaseBreakHandler.ProcessLeaseBreakAcknowledgment(response);
+
+            if (status == NTStatus.STATUS_SUCCESS)
+            {
+                LogToServer(Severity.Verbose, "[SMB2Session] ✅ Lease Break ACK processed successfully: LeaseKey={0}, State={1}", 
+                    response.LeaseKey, response.LeaseState);
+                
+                // 构造响应 (Samba smb2_break.c:308-318)
+                LeaseBreakResponse ackResponse = new LeaseBreakResponse();
+                ackResponse.Reserved = 0;
+                ackResponse.LeaseKey = response.LeaseKey;
+                ackResponse.LeaseState = response.LeaseState;  // Echo back client's state
+                ackResponse.LeaseDuration = 0;  // Must be 0
+                
+                return ackResponse;
+            }
+            else
+            {
+                LogToServer(Severity.Warning, "[SMB2Session] ⚠️ Lease Break ACK failed: LeaseKey={0}, Status={1}", 
+                    response.LeaseKey, status);
+                return new ErrorResponse(SMB2CommandName.OplockBreak, status);
+            }
         }
 
         /// <summary>

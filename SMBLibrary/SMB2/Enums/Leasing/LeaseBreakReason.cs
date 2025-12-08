@@ -60,6 +60,6 @@ namespace SMBLibrary.SMB2
         /// <summary>
         /// Server shutdown
         /// </summary>
-        ServerShutdown = 10
+        ServerShutdown = 10,
     }
 }
